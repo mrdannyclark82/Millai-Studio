@@ -74,6 +74,12 @@ export class GeminiService {
        model = isThinking ? MODELS.PRO : MODELS.FLASH;
     }
 
+    // CRITICAL FIX: Google Maps Grounding is currently only supported on Flash models, not Pro Preview.
+    // If Maps is enabled, we must force the model to Flash.
+    if (useGrounding) {
+        model = MODELS.FLASH;
+    }
+
     // 1. Get Base Persona
     let systemInstruction = getMillaPersona();
     
@@ -88,7 +94,8 @@ export class GeminiService {
       systemInstruction: systemInstruction,
     };
 
-    if (isThinking) {
+    // Only add thinking config if we are actually using the Pro model (and haven't switched to Flash due to Maps)
+    if (isThinking && model === MODELS.PRO) {
       config.thinkingConfig = { thinkingBudget: 32768 }; // Max for 3 Pro
     }
 
