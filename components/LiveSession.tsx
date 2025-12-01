@@ -1,5 +1,4 @@
 
-
 import React, { useEffect, useRef, useState } from 'react';
 import { geminiService } from '../services/geminiService';
 
@@ -23,7 +22,6 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onClose, initialConfig, voice
   const hudCanvasRef = useRef<HTMLCanvasElement>(null);
   
   const [isActive, setIsActive] = useState(true);
-  // Initialize state based on passed config
   const [isVideoEnabled, setIsVideoEnabled] = useState(initialConfig?.video || false);
   const [isScreenShare, setIsScreenShare] = useState(initialConfig?.screen || false);
   const [isEdgeEnabled, setIsEdgeEnabled] = useState(initialConfig?.edge || false);
@@ -37,14 +35,12 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onClose, initialConfig, voice
   const themeColorRef = useRef<string>('');
 
   useEffect(() => {
-    // Capture theme color once on mount to avoid computed style thrashing in animation loop
     const style = getComputedStyle(document.documentElement);
     themeColorRef.current = `rgb(${style.getPropertyValue('--milla-500').trim()})`;
   }, []);
 
   // --- Audio Session ---
   useEffect(() => {
-    let animationFrameId: number;
     const startSession = async () => {
       try {
         const session = await geminiService.connectLive(
@@ -71,7 +67,6 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onClose, initialConfig, voice
               setIsEdgeLoading(true);
               try {
                   setStatus("Loading Neural Engine...");
-                  // Dynamic imports to prevent blocking initial load
                   // @ts-ignore
                   const tf = await import('@tensorflow/tfjs');
                   await tf.ready();
@@ -139,8 +134,15 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onClose, initialConfig, voice
             setStatus(isScreenShare ? "Sharing Screen..." : "Live Vision Active");
             
             if (isScreenShare) {
-                // Screen Share
-                stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+                try {
+                    stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+                } catch (e) {
+                    console.warn("Screen share cancelled", e);
+                    setIsScreenShare(false);
+                    setIsVideoEnabled(false);
+                    setStatus("Screen Share Cancelled");
+                    return;
+                }
             } else {
                 // Camera - Try optimal settings first, fallback to basic
                 try {
@@ -151,15 +153,21 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onClose, initialConfig, voice
                         height: { ideal: 720 }
                       } 
                     });
-                } catch (e) {
-                    console.warn("Optimal video constraints failed, trying basic.", e);
-                    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                } catch (e: any) {
+                    // Silent fallback
+                    try {
+                        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    } catch (err: any) {
+                        setStatus("Camera Not Found");
+                        setIsVideoEnabled(false);
+                        return;
+                    }
                 }
             }
             
-            if (videoRef.current) {
+            if (videoRef.current && stream) {
                 videoRef.current.srcObject = stream;
-                await videoRef.current.play().catch(e => console.error("Video play error:", e));
+                await videoRef.current.play().catch(e => console.warn("Video play interrupted:", e));
                 
                 if (isEdgeEnabled && edgeModelRef.current) runEdge();
             }
@@ -169,24 +177,28 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onClose, initialConfig, voice
                 if (videoRef.current && videoCanvasRef.current && activeSessionRef.current) {
                     const ctx = videoCanvasRef.current.getContext('2d');
                     const video = videoRef.current;
-                    if (ctx && video.readyState === 4) {
+                    if (ctx && video.readyState === 4 && video.videoWidth > 0) {
                         videoCanvasRef.current.width = video.videoWidth;
                         videoCanvasRef.current.height = video.videoHeight;
                         ctx.drawImage(video, 0, 0);
+                        // Using JPEG 0.5 quality for efficiency
                         const base64 = videoCanvasRef.current.toDataURL('image/jpeg', 0.5).split(',')[1];
                         activeSessionRef.current.sendVideoFrame(base64);
                     }
                 }
-            }, 500); // 2 FPS for stability
+            }, 500); 
 
         } catch (e: any) {
-            console.error("Stream Start Error:", e);
+            // Specific handling for known errors to avoid console noise
             if (e.name === 'NotAllowedError') {
                  setStatus("Permission Denied");
             } else if (e.name === 'NotFoundError') {
                  setStatus("No Device Found");
+            } else if (e.name === 'NotReadableError') {
+                 setStatus("Camera In Use");
             } else {
-                 setStatus("Stream Error");
+                 console.error("Stream Error:", e);
+                 setStatus("Video Error");
             }
             setIsVideoEnabled(false);
             setIsScreenShare(false);
@@ -213,13 +225,13 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onClose, initialConfig, voice
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Use stored color ref
     const color = themeColorRef.current || 'rgb(236, 72, 153)';
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = color;
     const data = buffer.getChannelData(0);
     let sum = 0;
+    // Downsample for performance
     for(let i=0;i<data.length;i+=100) sum+=Math.abs(data[i]);
     const r = isVideoEnabled ? 30 + (sum/(data.length/100)*150) : 50 + (sum/(data.length/100)*500);
     ctx.beginPath();
@@ -237,7 +249,7 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onClose, initialConfig, voice
               ctx.drawImage(videoRef.current, 0, 0);
               const base64 = canvas.toDataURL('image/png').split(',')[1];
               onSnapshot(base64);
-              onClose(); // Optional: Close to show chat
+              onClose(); 
           }
       }
   };
@@ -289,8 +301,12 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onClose, initialConfig, voice
            )}
 
            {isVideoEnabled && (
-               <button onClick={takeSnapshot} className="p-4 rounded-xl bg-slate-700 text-slate-300 hover:text-white hover:bg-milla-600 transition-all hover:scale-110 active:scale-90" title="Snap & Analyze in Chat">
-                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+               <button onClick={takeSnapshot} className={`p-4 rounded-xl transition-all hover:scale-110 active:scale-90 ${isScreenShare ? 'bg-green-600 text-white' : 'bg-slate-700 text-slate-300 hover:text-white hover:bg-milla-600'}`} title={isScreenShare ? "Analyze Screen in Chat" : "Snap & Analyze"}>
+                   {isScreenShare ? (
+                       <div className="flex items-center gap-1 font-bold text-xs"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 21h7a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v11m0 5l4.879-4.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242z" /></svg> Analyze</div>
+                   ) : (
+                       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                   )}
                </button>
            )}
 

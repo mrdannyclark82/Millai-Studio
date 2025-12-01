@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
 // @ts-ignore
 import Editor from 'react-simple-code-editor';
@@ -37,8 +36,8 @@ const FileItem: React.FC<{ node: GitHubNode, onClick: (n: GitHubNode) => void, d
 
 const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscuss }) => {
   const [code, setCode] = useState(initialCode);
-  const [debouncedCode, setDebouncedCode] = useState(initialCode); // For iframe performance
-  const [activeTab, setActiveTab] = useState<'preview' | 'code' | 'split'>('split'); // Default to split on desktop
+  const [debouncedCode, setDebouncedCode] = useState(initialCode);
+  const [activeTab, setActiveTab] = useState<'preview' | 'code' | 'split'>('split');
   const [key, setKey] = useState(0); 
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [lastSaved, setLastSaved] = useState<string>('');
@@ -59,7 +58,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
 
   // Resize State
   const [sidebarWidth, setSidebarWidth] = useState(250);
-  const [editorWidthPercentage, setEditorWidthPercentage] = useState(50); // For split view
+  const [editorWidthPercentage, setEditorWidthPercentage] = useState(50);
   const [consoleHeight, setConsoleHeight] = useState(160);
   
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
@@ -92,7 +91,6 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
       const t = githubService.getToken();
       if (t) setGhToken(t);
 
-      // Check screen size for default view
       if (window.innerWidth < 768) setActiveTab('code');
     }
   }, [initialCode, isOpen]);
@@ -101,7 +99,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
   useEffect(() => {
       const handler = setTimeout(() => {
           setDebouncedCode(code);
-      }, 500); // 500ms delay prevents flickering
+      }, 500); 
       return () => clearTimeout(handler);
   }, [code]);
 
@@ -138,7 +136,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
     if (isConsoleOpen) logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs, isConsoleOpen]);
 
-  // Real-time Linting (Debounced)
+  // Real-time Linting
   useEffect(() => {
     const timer = setTimeout(async () => {
       if (!code.trim()) {
@@ -154,7 +152,6 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
         else if (lowerPath.endsWith('.md')) parser = 'markdown';
         else if (code.trim().startsWith('<!DOCTYPE') || code.trim().startsWith('<html')) parser = 'html';
 
-        // Dynamic import
         // @ts-ignore
         const prettier = await import('prettier');
         // @ts-ignore
@@ -225,7 +222,6 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
       window.addEventListener('mouseup', handleMouseUp);
       document.body.style.cursor = isResizingSplit ? 'col-resize' : isResizingConsole ? 'row-resize' : isResizingSidebar ? 'col-resize' : 'default';
       
-      // Disable iframe interactions during resize
       const frames = document.querySelectorAll('iframe');
       frames.forEach(f => f.style.pointerEvents = 'none');
     } else {
@@ -257,7 +253,12 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
         setIsSidebarOpen(true); 
     } catch (e: any) {
         console.error(e);
-        alert(e.message || "Failed to load repo. Check token?");
+        if (e.message.includes('not found') || e.message.includes('token')) {
+            alert("Repository not found or private.\nPlease add a Personal Access Token below.");
+            setShowTokenInput(true); // Automatically show token input
+        } else {
+            alert(e.message || "Failed to load repo.");
+        }
     } finally {
         setIsLoadingRepo(false);
     }
@@ -277,7 +278,6 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
             const content = await githubService.fetchFileContent(node.url);
             setCode(content);
             setCurrentFilePath(node.path);
-            // Don't auto-switch tab in split view, but on mobile maybe?
             if (activeTab === 'preview') setActiveTab('code');
         } catch (e) {
             console.error(e);
@@ -396,7 +396,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
   const handleDiscuss = () => {
       if (onDiscuss) {
           onDiscuss(code);
-          onClose(); // Optional: Close sandbox to show chat
+          if (window.innerWidth < 768) onClose();
       }
   };
 
@@ -444,9 +444,9 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
                 </button>
 
                 {onDiscuss && (
-                    <button onClick={handleDiscuss} className="flex items-center gap-1 px-3 py-1.5 bg-blue-900/20 text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 rounded text-xs font-medium transition-all">
+                    <button onClick={handleDiscuss} className="flex items-center gap-1 px-3 py-1.5 bg-blue-900/20 text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 rounded text-xs font-medium transition-all shadow-sm border border-blue-900/30">
                         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" /></svg>
-                        Discuss
+                        Discuss Code
                     </button>
                 )}
             </div>
@@ -506,7 +506,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
                         {isLoadingRepo ? '...' : 'Go'}
                      </button>
                  </div>
-                 <button onClick={() => setShowTokenInput(!showTokenInput)} className="text-[10px] text-slate-500 hover:text-milla-400 underline">
+                 <button onClick={() => setShowTokenInput(!showTokenInput)} className="text-[10px] text-slate-500 hover:text-milla-400 underline text-left">
                     {ghToken ? 'Update Token' : 'Add Auth Token (Private Repos)'}
                  </button>
                  {showTokenInput && (

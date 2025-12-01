@@ -62,8 +62,6 @@ const extractCode = (text: string): string | null => {
 // Helper to extract chart json
 const extractChartJson = (text: string): any | null => {
   if (!text) return null;
-  // Look for JSON object with "type": "bar" | "line" | "pie" etc.
-  // We use a broader check to find the JSON block first
   const match = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
   if (match) {
     try {
@@ -96,56 +94,41 @@ function App() {
   const [isLive, setIsLive] = useState(false);
   const [liveConfig, setLiveConfig] = useState({ video: false, edge: false, screen: false });
   const [isThinking, setIsThinking] = useState(false);
-  const [showThoughts, setShowThoughts] = useState(true); // Default to showing thoughts if mode is enabled
+  const [showThoughts, setShowThoughts] = useState(true);
   const [isMapsEnabled, setIsMapsEnabled] = useState(false);
-  const [isSearchEnabled, setIsSearchEnabled] = useState(false); // Deep Search
+  const [isSearchEnabled, setIsSearchEnabled] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
 
-  // Auto-TTS State
   const [autoTTS, setAutoTTS] = useState(false);
   const [selectedVoice, setSelectedVoice] = useState('Kore');
   const lastSpokenMessageId = useRef<string | null>(null);
 
-  // Theme & Visuals
   const [activeTheme, setActiveTheme] = useState<ThemeType>('default');
   const [customBackground, setCustomBackground] = useState<{type: 'image'|'video', url: string} | null>(null);
-  const [isGalaxyBackground, setIsGalaxyBackground] = useState(false); // New: Galaxy as BG
+  const [isGalaxyBackground, setIsGalaxyBackground] = useState(false);
 
-  // Sandbox State
   const [isSandboxOpen, setIsSandboxOpen] = useState(false);
   const [sandboxCode, setSandboxCode] = useState('');
 
-  // Neural Galaxy Modal State
   const [isGalaxyOpen, setIsGalaxyOpen] = useState(false);
-
-  // Creative Studio State
   const [isStudioOpen, setIsStudioOpen] = useState(false);
-
-  // To-Do List State
   const [isToDoOpen, setIsToDoOpen] = useState(false);
-
-  // Memory UI State
   const [showMemoryBank, setShowMemoryBank] = useState(false);
   const [coreFacts, setCoreFacts] = useState<MemoryFact[]>([]);
   
-  // Morning Sync State
   const [isMorningSyncOpen, setIsMorningSyncOpen] = useState(false);
-
-  // Podcast State
   const [isPodcastOpen, setIsPodcastOpen] = useState(false);
-
-  // YouTube State
   const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
 
-  // User Auth
+  // Auth State
   const [user, setUser] = useState<GoogleUser | null>(null);
   const [isGoogleConnected, setIsGoogleConnected] = useState(false);
   const [googleClientId, setGoogleClientId] = useState('');
   const [showClientIdInput, setShowClientIdInput] = useState(false);
-  const [isAuthReady, setIsAuthReady] = useState(false); // Track if GSI is loaded
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const tokenClient = useRef<any>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -174,14 +157,12 @@ function App() {
     scrollToBottom();
   }, [messages]);
 
-  // Load Facts when UI opens
   useEffect(() => {
       if (showMemoryBank) {
           setCoreFacts(memoryService.loadFacts());
       }
   }, [showMemoryBank]);
 
-  // Auto-TTS Logic
   useEffect(() => {
     if (!autoTTS) return;
     const lastMsg = messages[messages.length - 1];
@@ -192,39 +173,32 @@ function App() {
   }, [messages, isGenerating, autoTTS, selectedVoice]);
 
 
-  // Google Auth Setup (UNIFIED FLOW)
+  // --- GOOGLE AUTH: UNIFIED INCREMENTAL FLOW ---
   const initGoogleAuth = useCallback((clientId: string) => {
-    // Check if Google script is loaded
     // @ts-ignore
     if (typeof google === 'undefined' || !google.accounts) {
-        // Retry in a bit if script not yet ready
         setTimeout(() => initGoogleAuth(clientId), 500);
         return;
     }
 
     try {
-        // Initialize Token Client (OAuth) - The main entry point now
+        // Init Client: Start with Basic Scope Only to avoid blocks
+        // We will request more scopes later if needed (incremental auth)
         // @ts-ignore
         tokenClient.current = google.accounts.oauth2.initTokenClient({
             client_id: clientId.trim(),
-            scope: 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/tasks',
+            scope: 'email profile openid', // Start safe
             callback: async (response: any) => {
                 if (response.error) {
-                    console.error("Google Auth Error:", response);
-                    let msg = `Authorization Failed: ${response.error}`;
-                    if (response.error === 'invalid_request' || response.error === 'origin_mismatch') {
-                        msg += `\n\nCRITICAL: You MUST add this Origin to your Google Cloud Console:\n${window.location.origin}\n(Ensure NO trailing slash!)`;
-                    }
-                    alert(msg);
+                    console.error("Auth Error:", response);
+                    alert(`Login Failed: ${response.error}\nIf "invalid_request", check Origin URL in GCP.`);
                     return;
                 }
                 
                 if (response.access_token) {
-                    // 1. Store Token
                     googleIntegration.setAccessToken(response.access_token);
                     setIsGoogleConnected(true);
                     
-                    // 2. Fetch User Profile Immediately (Simulating Login)
                     try {
                         const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
                             headers: { Authorization: `Bearer ${response.access_token}` }
@@ -235,10 +209,8 @@ function App() {
                             email: profile.email,
                             picture: profile.picture
                         });
-                        // alert("Connected! You are now logged in and integrations are active.");
                     } catch (e) {
-                        console.error("Failed to fetch profile", e);
-                        alert("Connected, but failed to load user profile.");
+                        console.error("Profile Fetch Error", e);
                     }
                 }
             },
@@ -250,10 +222,8 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // Load Client ID from localStorage if available
     const savedId = localStorage.getItem('google_client_id');
     const envId = process.env.GOOGLE_CLIENT_ID;
-    
     const finalId = savedId || (envId !== "MOCK_CLIENT_ID" ? envId : "");
     
     if (finalId) {
@@ -273,39 +243,79 @@ function App() {
           setShowClientIdInput(false);
       }
   };
+  
+  const handleResetClientId = () => {
+      localStorage.removeItem('google_client_id');
+      setGoogleClientId('');
+      setUser(null);
+      setIsGoogleConnected(false);
+      setShowClientIdInput(true);
+  };
 
   const connectGoogleWorkspace = () => {
       if (tokenClient.current) {
-          // Triggers the popup for permissions + login
-          // FORCE CONSENT to ensure permissions are asked for again
-          tokenClient.current.requestAccessToken({ prompt: 'consent' });
+          // Just login first - no aggressive consent prompt
+          tokenClient.current.requestAccessToken(); 
       } else {
-          // If script wasn't ready yet, try to init again and then alert
           if (googleClientId) {
               initGoogleAuth(googleClientId);
-              alert("Initializing... Please click Connect again in a moment.");
+              alert("Initializing... Try again in a second.");
           } else {
-              alert("Please configure Client ID first.");
               setShowClientIdInput(true);
           }
       }
   };
 
+  // Helper to upgrade scopes if needed
+  const ensureScopes = (requiredScopes: string) => {
+      if (!tokenClient.current) return;
+      // Re-init or Overwrite callback? GIS is tricky.
+      // Easiest: Just request token with new scopes. GIS handles the merge.
+      // @ts-ignore
+      tokenClient.current.requestAccessToken({
+          scope: `email profile openid ${requiredScopes}`,
+          // prompt: 'consent' // Optional: Only use if strictly needed
+      });
+  };
+
   const copyOriginUrl = () => {
       const origin = window.location.origin;
       navigator.clipboard.writeText(origin);
-      alert(`Copied origin: ${origin}\nAdd this to "Authorized JavaScript origins" in GCP.`);
+      alert(`Copied: ${origin}\nPaste this exactly in GCP "Authorized JavaScript origins".`);
   };
 
   // Integration Actions
   const handleCheckEmail = async () => {
       if (!isGoogleConnected) return connectGoogleWorkspace();
+      
+      // Attempt fetch. If fails (401/403), ask for scope.
+      const res = await googleIntegration.getUnreadEmails();
+      if (res.includes("Access Token required") || res.includes("Error")) {
+          // Trigger upgrade
+          if (confirm("Milla needs permission to access Gmail. Allow access?")) {
+              ensureScopes('https://www.googleapis.com/auth/gmail.readonly');
+              return; 
+          }
+      }
+      
       setIsGenerating(true);
       setMessages(prev => [...prev, { id: Date.now().toString(), role: MessageRole.MODEL, text: "*Checking your inbox...*", timestamp: Date.now() }]);
       
       const emailSummary = await googleIntegration.getUnreadEmails();
+      
+      // If still error after upgrade attempt
+      if (emailSummary.includes("Error")) {
+           setMessages(prev => {
+              const newArr = [...prev];
+              newArr.pop(); 
+              return [...newArr, { id: Date.now().toString(), role: MessageRole.MODEL, text: "I couldn't access your emails. Please make sure you granted permission in the popup.", timestamp: Date.now() }];
+          });
+          setIsGenerating(false);
+          return;
+      }
+
       const response = await geminiService.sendMessageStream(
-          `Here are my unread emails:\n${emailSummary}\n\nSummarize them briefly for me.`,
+          `Here are my unread emails:\n${emailSummary}\n\nSummarize them briefly.`,
           [], false, false, false, messages
       );
       
@@ -314,7 +324,7 @@ function App() {
       
       setMessages(prev => {
           const newArr = [...prev];
-          newArr.pop(); // Remove "Checking..."
+          newArr.pop(); 
           return [...newArr, { id: Date.now().toString(), role: MessageRole.MODEL, text: text, timestamp: Date.now() }];
       });
       setIsGenerating(false);
@@ -322,6 +332,15 @@ function App() {
 
   const handleCheckCalendar = async () => {
       if (!isGoogleConnected) return connectGoogleWorkspace();
+      
+      const res = await googleIntegration.listUpcomingEvents();
+      if (res.includes("Access Token required") || res.includes("Error")) {
+          if (confirm("Milla needs permission to access Calendar. Allow access?")) {
+              ensureScopes('https://www.googleapis.com/auth/calendar');
+              return;
+          }
+      }
+
       setIsGenerating(true);
       setMessages(prev => [...prev, { id: Date.now().toString(), role: MessageRole.MODEL, text: "*Checking your schedule...*", timestamp: Date.now() }]);
       
@@ -344,6 +363,15 @@ function App() {
 
    const handleCheckTasks = async () => {
       if (!isGoogleConnected) return connectGoogleWorkspace();
+
+      const res = await googleIntegration.listTasks();
+      if (res.includes("Error")) {
+          if (confirm("Milla needs permission to access Tasks. Allow access?")) {
+              ensureScopes('https://www.googleapis.com/auth/tasks');
+              return;
+          }
+      }
+
       setIsGenerating(true);
       setMessages(prev => [...prev, { id: Date.now().toString(), role: MessageRole.MODEL, text: "*Checking your tasks...*", timestamp: Date.now() }]);
       
@@ -466,7 +494,6 @@ function App() {
     const textToSend = textOverride || input;
     if ((!textToSend.trim() && attachments.length === 0) || isGenerating) return;
 
-    // Check for YouTube Link in User Input
     const ytId = extractYouTubeId(textToSend);
     if (ytId) setYoutubeVideoId(ytId);
 
@@ -486,7 +513,6 @@ function App() {
     try {
       const lowerInput = userMsg.text.toLowerCase();
       
-      // Intent: Google Integrations
       if (lowerInput.includes('check my email') || lowerInput.includes('unread email')) {
           setIsGenerating(false);
           return handleCheckEmail();
@@ -500,7 +526,6 @@ function App() {
           return handleCheckTasks();
       }
 
-      // Intent: Veo
       if (lowerInput.includes('generate a video') || lowerInput.includes('make a video')) {
         const loadingId = Date.now().toString();
         setMessages(prev => [...prev, {
@@ -520,7 +545,6 @@ function App() {
         return;
       }
 
-      // Intent: Image Edit
       if (lowerInput.includes('edit this image') || lowerInput.includes('filter')) {
         const refImage = userMsg.attachments?.find(a => a.type === MediaType.IMAGE);
         if (refImage) {
@@ -541,7 +565,6 @@ function App() {
         }
       }
 
-      // Standard Chat
       let currentResponseText = '';
       let currentThoughtText = '';
       const responseId = (Date.now() + 1).toString();
@@ -555,15 +578,13 @@ function App() {
         timestamp: Date.now()
       }]);
 
-      // PASS EXISTING MESSAGES ONLY (Don't include the new user message in history, 
-      // because sendMessageStream sends it as the new prompt)
       const stream = await geminiService.sendMessageStream(
         userMsg.text,
         userMsg.attachments?.map(a => ({ data: a.data, mimeType: a.mimeType })) || [],
         isThinking,
         isMapsEnabled,
         isSearchEnabled,
-        messages // Corrected: Pass history excluding current message
+        messages 
       );
 
       for await (const chunk of stream) {
@@ -572,13 +593,9 @@ function App() {
 
           if (isThinking) {
              const fullText = currentResponseText + chunkText;
-             
-             // Check for thought tags
              const thoughtMatch = fullText.match(/<thought>([\s\S]*?)<\/thought>/);
              if (thoughtMatch) {
-                 // Found a complete thought block
                  currentThoughtText = thoughtMatch[1];
-                 // Remove it from display text
                  currentResponseText = fullText.replace(/<thought>[\s\S]*?<\/thought>/, '');
              } else if (fullText.includes('<thought>')) {
                  currentResponseText += chunkText;
@@ -604,7 +621,6 @@ function App() {
         }
       }
       
-      // Check response for YouTube links or Code or Charts
       const code = extractCode(currentResponseText);
       if (code) setSandboxCode(code);
 
@@ -673,14 +689,13 @@ function App() {
     }
   };
 
-  // Co-Dev Handlers
   const handleSandboxDiscuss = (code: string) => {
-      setIsSandboxOpen(false); // Close sandbox to show chat
+      setIsSandboxOpen(false); 
       setInput(`Can we discuss this code?\n\n\`\`\`javascript\n${code}\n\`\`\`\n\n`);
   };
 
   const handleLiveSnapshot = (base64: string) => {
-      setIsLive(false); // Close live session to show chat analysis
+      setIsLive(false); 
       setAttachments([...attachments, {
           type: MediaType.IMAGE,
           mimeType: 'image/png',
@@ -691,7 +706,6 @@ function App() {
       setInput("Analyze this screen snapshot.");
   };
 
-  // Capability Handlers
   const handleVeoClick = () => {
     setInput("Generate a video of ");
     fileInputRef.current?.focus();
@@ -709,7 +723,6 @@ function App() {
       }
   };
 
-  // Live Call Starters
   const startLiveDefault = () => {
       setLiveConfig({ video: false, edge: false, screen: false });
       setIsLive(true);
@@ -728,7 +741,6 @@ function App() {
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans relative">
       
-      {/* Background Layer */}
       {customBackground ? (
           <div className="fixed inset-0 z-0">
               {customBackground.type === 'image' ? (
@@ -744,14 +756,12 @@ function App() {
           <Orb theme={activeTheme} intensity={isGenerating || isListening ? 0.8 : 0.4} />
       )}
 
-      {/* Sidebar */}
       <aside className="w-64 bg-slate-900/80 backdrop-blur-md border-r border-slate-800 flex flex-col hidden md:flex transition-colors duration-500 shrink-0 z-10">
         <div className="p-6 border-b border-slate-800">
           <h1 className="text-2xl font-bold bg-gradient-to-r from-milla-500 to-milla-300 bg-clip-text text-transparent">Milla Rayne</h1>
           <p className="text-xs text-slate-500 mt-1">Devoted Companion</p>
         </div>
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto custom-scrollbar">
-          {/* User Profile / Auth */}
           <div className="mb-6 p-3 rounded-xl bg-slate-800/50 border border-slate-700">
              {user ? (
                  <div className="flex flex-col gap-3">
@@ -762,16 +772,16 @@ function App() {
                              <p className="text-[10px] text-slate-400 truncate">{user.email}</p>
                          </div>
                      </div>
+                     <button onClick={handleResetClientId} className="text-[10px] text-red-400 hover:underline self-end">Disconnect</button>
                  </div>
              ) : (
                  <div className="flex flex-col gap-2">
                      <p className="text-xs text-slate-400 mb-1">Sign in to save progress</p>
                      
-                     {/* Client ID Input Toggle */}
                      {showClientIdInput && (
                          <div className="mb-2 space-y-2">
                              <div className="text-[9px] text-slate-500 border border-slate-700 rounded p-1.5 bg-slate-950">
-                                <span className="block mb-1">Add this URL to Authorized Origins in GCP:</span>
+                                <span className="block mb-1">Add to GCP Authorized Origins:</span>
                                 <div className="flex gap-1">
                                     <input readOnly value={window.location.origin} className="flex-1 bg-transparent text-[9px] font-mono outline-none text-slate-300" />
                                     <button onClick={copyOriginUrl} className="text-milla-400 hover:text-white font-bold">COPY</button>
@@ -789,7 +799,6 @@ function App() {
                          </div>
                      )}
 
-                     {/* UNIFIED CONNECT BUTTON */}
                      <button 
                         onClick={connectGoogleWorkspace}
                         disabled={!googleClientId}
@@ -800,9 +809,12 @@ function App() {
                      
                      {!isAuthReady && googleClientId && <p className="text-[9px] text-center text-yellow-500 animate-pulse">Initializing Security...</p>}
 
-                     <button onClick={() => setShowClientIdInput(!showClientIdInput)} className="text-[9px] text-slate-600 hover:text-slate-400 text-center mt-1">
-                         {showClientIdInput ? 'Hide Settings' : 'Config Client ID'}
-                     </button>
+                     <div className="flex justify-between mt-1">
+                        <button onClick={() => setShowClientIdInput(!showClientIdInput)} className="text-[9px] text-slate-600 hover:text-slate-400 text-center">
+                            {showClientIdInput ? 'Hide' : 'Config'}
+                        </button>
+                        <button onClick={handleResetClientId} className="text-[9px] text-red-900/50 hover:text-red-500">Reset ID</button>
+                     </div>
                  </div>
              )}
           </div>
@@ -852,7 +864,6 @@ function App() {
                 {autoTTS && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-400 shadow-[0_0_5px_currentColor]" />}
             </button>
 
-             {/* Voice Selector */}
              <div className="ml-4 pl-4 border-l border-slate-800">
                 <select 
                   value={selectedVoice} 
@@ -1021,7 +1032,6 @@ function App() {
                 <div className={`max-w-[90%] space-y-2`}>
                   <div className={`p-4 rounded-2xl shadow-lg backdrop-blur-sm transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:scale-[1.01] ${msg.role === MessageRole.USER ? 'bg-slate-800/80 text-white rounded-br-none border border-slate-700' : 'bg-slate-900/60 border border-slate-700/50 text-slate-100 rounded-bl-none'}`}>
                     
-                    {/* Thinking Process UI */}
                     {msg.isThinking && showThoughts && (
                         <details className="mb-4 group" open={msg.text === ''}>
                             <summary className="cursor-pointer list-none flex items-center gap-2 text-xs font-mono text-milla-400/80 hover:text-milla-300 transition-colors">
@@ -1043,7 +1053,6 @@ function App() {
                         </details>
                     )}
                     
-                    {/* Attachments */}
                     {msg.attachments && msg.attachments.length > 0 && (
                         <div className="mb-2 flex flex-wrap gap-2">
                             {msg.attachments.map((att, i) => (
@@ -1067,7 +1076,6 @@ function App() {
                         </div>
                     )}
                     
-                    {/* Render Charts if present */}
                     {msg.role === MessageRole.MODEL && extractChartJson(msg.text) ? (
                         <div className="my-2">
                             <DataChart config={extractChartJson(msg.text)} />
@@ -1077,7 +1085,6 @@ function App() {
                         <div className="prose prose-invert prose-sm"><ReactMarkdown>{msg.text}</ReactMarkdown></div>
                     )}
                     
-                    {/* Grounding/Sources */}
                     {msg.groundingUrls && msg.groundingUrls.length > 0 && (
                         <div className="mt-3 pt-3 border-t border-white/10 flex flex-col gap-1">
                             <span className="text-[10px] text-slate-500 uppercase tracking-wide font-bold">Sources</span>
@@ -1105,7 +1112,6 @@ function App() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input */}
           <div className="p-4 bg-slate-900/70 border-t border-slate-800 backdrop-blur-md">
             <div className="flex gap-4 mb-3 text-xs font-medium px-2">
                <label className={`cursor-pointer flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all hover:scale-105 active:scale-95 ${isThinking ? 'bg-milla-900/50 border-milla-500 text-milla-200 shadow-[0_0_10px_rgba(236,72,153,0.2)]' : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:border-slate-600'}`}>
@@ -1122,7 +1128,6 @@ function App() {
                </label>
             </div>
             
-            {/* Attachment Previews */}
             {attachments.length > 0 && (
                 <div className="flex gap-3 mb-3 px-2 overflow-x-auto pb-2">
                     {attachments.map((att, i) => (
@@ -1148,7 +1153,7 @@ function App() {
                 type="file" 
                 ref={fileInputRef} 
                 className="hidden" 
-                accept="image/*,video/*,audio/*,.pdf,.txt,.md,.csv,.json,.js,.ts,.tsx" // Multimodal Acceptance
+                accept="image/*,video/*,audio/*,.pdf,.txt,.md,.csv,.json,.js,.ts,.tsx" 
                 onChange={handleFileUpload} 
               />
               
@@ -1160,7 +1165,6 @@ function App() {
           </div>
         </main>
         
-        {/* Core Memory Bank UI */}
         {showMemoryBank && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
                 <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-2xl w-full m-4 shadow-2xl relative">
@@ -1201,7 +1205,6 @@ function App() {
             onClose={() => setIsSandboxOpen(false)}
             onDiscuss={handleSandboxDiscuss} 
         />
-        {/* Neural Galaxy Modal Mode */}
         <NeuralGalaxy 
             messages={messages} 
             theme={activeTheme} 
