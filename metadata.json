@@ -1,0 +1,10 @@
+{
+  "name": "Milla Rayne - Personal Companion",
+  "description": "A deeply personalized, intelligent companion app featuring Milla Rayne. Powered by Gemini 2.5 and 3 Pro for chat, voice, vision, and creation.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation",
+    "display-capture"
+  ]
+}

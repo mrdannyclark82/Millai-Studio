@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Milla Rayne</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              milla: {
+                50: 'rgb(var(--milla-50) / <alpha-value>)',
+                100: 'rgb(var(--milla-100) / <alpha-value>)',
+                200: 'rgb(var(--milla-200) / <alpha-value>)',
+                300: 'rgb(var(--milla-300) / <alpha-value>)',
+                400: 'rgb(var(--milla-400) / <alpha-value>)',
+                500: 'rgb(var(--milla-500) / <alpha-value>)',
+                600: 'rgb(var(--milla-600) / <alpha-value>)',
+                700: 'rgb(var(--milla-700) / <alpha-value>)',
+                800: 'rgb(var(--milla-800) / <alpha-value>)',
+                900: 'rgb(var(--milla-900) / <alpha-value>)',
+                950: 'rgb(var(--milla-950) / <alpha-value>)',
+              },
+              slate: {
+                850: '#151e2e',
+                900: '#0f172a',
+                950: '#020617',
+              }
+            },
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              mono: ['Fira Code', 'monospace'],
+            },
+            animation: {
+              'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            }
+          },
+        },
+      }
+    </script>
+    
+    <!-- PrismJS for Syntax Highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-jsx.min.js"></script>
+    
+    <!-- Google Identity Services for Drive Auth -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap');
+      
+      :root {
+        /* Default Pink (Rose/Pink mix) */
+        --milla-50: 253 242 248;
+        --milla-100: 252 231 243;
+        --milla-200: 251 207 232;
+        --milla-300: 249 168 212;
+        --milla-400: 244 114 182;
+        --milla-500: 236 72 153;
+        --milla-600: 219 39 119;
+        --milla-700: 190 24 93;
+        --milla-800: 157 23 77;
+        --milla-900: 131 24 67;
+        --milla-950: 80 7 36;
+      }
+
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #0f172a;
+        color: #f1f5f9;
+        transition: background-color 0.5s ease;
+      }
+      
+      /* Smooth transition for color changes */
+      *, *::before, *::after {
+        transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
+        transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+        transition-duration: 300ms;
+      }
+
+      /* Custom scrollbar */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #1e293b; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #475569; 
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #64748b; 
+      }
+
+      /* Message Bubble Animation */
+      @keyframes fadeInUp {
+        0% {
+          opacity: 0;
+          transform: translateY(10px) scale(0.98);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+      
+      .animate-fade-in-up {
+        animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        will-change: transform, opacity;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "react-markdown": "https://aistudiocdn.com/react-markdown@^10.1.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-simple-code-editor": "https://esm.sh/react-simple-code-editor@0.14.1?external=react",
+    "@tensorflow/tfjs": "https://esm.sh/@tensorflow/tfjs@4.17.0",
+    "@tensorflow-models/coco-ssd": "https://esm.sh/@tensorflow-models/coco-ssd@2.2.3",
+    "octokit": "https://aistudiocdn.com/octokit@^5.0.5",
+    "prettier": "https://esm.sh/prettier@3.2.5/standalone",
+    "prettier/plugins/babel": "https://esm.sh/prettier@3.2.5/plugins/babel",
+    "prettier/plugins/estree": "https://esm.sh/prettier@3.2.5/plugins/estree",
+    "prettier/plugins/html": "https://esm.sh/prettier@3.2.5/plugins/html",
+    "prettier/plugins/postcss": "https://esm.sh/prettier@3.2.5/plugins/postcss",
+    "prettier/": "https://aistudiocdn.com/prettier@^3.7.3/",
+    "chart.js": "https://esm.sh/chart.js@4.4.1",
+    "react-chartjs-2": "https://esm.sh/react-chartjs-2@5.2.0?external=react,chart.js,react-dom"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
