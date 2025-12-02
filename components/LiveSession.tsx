@@ -50,9 +50,9 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onClose, initialConfig, voice
         );
         activeSessionRef.current = session;
         setStatus("Milla is listening...");
-      } catch (err) {
+      } catch (err: any) {
         console.error(err);
-        setStatus("Connection Failed");
+        setStatus(err.message || "Connection Failed");
         setIsActive(false);
       }
     };
@@ -154,11 +154,14 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onClose, initialConfig, voice
                       } 
                     });
                 } catch (e: any) {
-                    // Silent fallback
+                    // Fallback to basic constraints if optimal fail (OverconstrainedError)
                     try {
                         stream = await navigator.mediaDevices.getUserMedia({ video: true });
                     } catch (err: any) {
-                        setStatus("Camera Not Found");
+                        if (err.name === 'NotFoundError') setStatus("No Camera Found");
+                        else if (err.name === 'NotAllowedError') setStatus("Camera Permission Denied");
+                        else setStatus("Camera Error");
+                        
                         setIsVideoEnabled(false);
                         return;
                     }
@@ -246,7 +249,14 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onClose, initialConfig, voice
           canvas.height = videoRef.current.videoHeight;
           const ctx = canvas.getContext('2d');
           if (ctx) {
+              // Draw Video Frame
               ctx.drawImage(videoRef.current, 0, 0);
+              
+              // Draw HUD Overlay if Edge is Enabled
+              if (isEdgeEnabled && hudCanvasRef.current) {
+                  ctx.drawImage(hudCanvasRef.current, 0, 0);
+              }
+              
               const base64 = canvas.toDataURL('image/png').split(',')[1];
               onSnapshot(base64);
               onClose(); 
@@ -301,7 +311,7 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onClose, initialConfig, voice
            )}
 
            {isVideoEnabled && (
-               <button onClick={takeSnapshot} className={`p-4 rounded-xl transition-all hover:scale-110 active:scale-90 ${isScreenShare ? 'bg-green-600 text-white' : 'bg-slate-700 text-slate-300 hover:text-white hover:bg-milla-600'}`} title={isScreenShare ? "Analyze Screen in Chat" : "Snap & Analyze"}>
+               <button onClick={takeSnapshot} className={`p-4 rounded-xl transition-all hover:scale-110 active:scale-90 ${isScreenShare ? 'bg-green-600 text-white' : 'bg-slate-700 text-slate-300 hover:text-white hover:bg-milla-600'}`} title={isEdgeEnabled ? "Analyze HUD Snapshot" : "Snap & Analyze"}>
                    {isScreenShare ? (
                        <div className="flex items-center gap-1 font-bold text-xs"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 21h7a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v11m0 5l4.879-4.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242z" /></svg> Analyze</div>
                    ) : (

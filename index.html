@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Milla Rayne</title>
+    <!-- Tailwind via CDN for simplicity in this setup -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -48,8 +49,11 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-css.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-jsx.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-tsx.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
     
-    <!-- Google Identity Services for Drive Auth -->
+    <!-- Google Identity Services for Drive/Gmail Auth -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     
     <style>
@@ -116,32 +120,48 @@
         animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         will-change: transform, opacity;
       }
+
+      /* Line Numbers */
+      .code-editor-wrapper {
+        counter-reset: line;
+      }
+      .code-line-numbers {
+        font-family: 'Fira Code', monospace;
+        font-size: 13px;
+        line-height: 1.5; /* Match react-simple-code-editor default */
+        text-align: right;
+        padding-right: 12px;
+        padding-top: 20px; /* Match Editor padding */
+        color: #64748b;
+        user-select: none;
+        background-color: #0f172a;
+        border-right: 1px solid #1e293b;
+      }
     </style>
   <script type="importmap">
 {
   "imports": {
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
     "react-markdown": "https://aistudiocdn.com/react-markdown@^10.1.0",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-simple-code-editor": "https://esm.sh/react-simple-code-editor@0.14.1?external=react",
-    "@tensorflow/tfjs": "https://esm.sh/@tensorflow/tfjs@4.17.0",
-    "@tensorflow-models/coco-ssd": "https://esm.sh/@tensorflow-models/coco-ssd@2.2.3",
-    "octokit": "https://aistudiocdn.com/octokit@^5.0.5",
-    "prettier": "https://esm.sh/prettier@3.2.5/standalone",
-    "prettier/plugins/babel": "https://esm.sh/prettier@3.2.5/plugins/babel",
-    "prettier/plugins/estree": "https://esm.sh/prettier@3.2.5/plugins/estree",
-    "prettier/plugins/html": "https://esm.sh/prettier@3.2.5/plugins/html",
-    "prettier/plugins/postcss": "https://esm.sh/prettier@3.2.5/plugins/postcss",
+    "chart.js": "https://aistudiocdn.com/chart.js@^4.5.1",
+    "vite": "https://aistudiocdn.com/vite@^7.2.6",
+    "react-chartjs-2": "https://aistudiocdn.com/react-chartjs-2@^5.3.1",
     "prettier/": "https://aistudiocdn.com/prettier@^3.7.3/",
-    "chart.js": "https://esm.sh/chart.js@4.4.1",
-    "react-chartjs-2": "https://esm.sh/react-chartjs-2@5.2.0?external=react,chart.js,react-dom"
+    "prettier": "https://aistudiocdn.com/prettier@^3.7.3",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
+    "react-simple-code-editor": "https://aistudiocdn.com/react-simple-code-editor@^0.14.1",
+    "@tensorflow-models/coco-ssd": "https://esm.sh/@tensorflow-models/coco-ssd@2.2.3",
+    "@tensorflow/tfjs": "https://esm.sh/@tensorflow/tfjs@4.20.0",
+    "@tensorflow/tfjs-tflite": "https://esm.sh/@tensorflow/tfjs-tflite@0.0.1-alpha.10"
   }
 }
 </script>
 </head>
   <body>
     <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>

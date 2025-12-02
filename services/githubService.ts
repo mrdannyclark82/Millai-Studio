@@ -42,6 +42,16 @@ export class GitHubService {
     return { owner: parts[0], repo: parts[1] };
   }
 
+  // Helper for Unicode-safe Base64 encoding
+  private toBase64(str: string): string {
+    return btoa(
+      encodeURIComponent(str).replace(/%([0-9A-F]{2})/g,
+        function toSolidBytes(_match, p1) {
+          return String.fromCharCode(parseInt(p1, 16));
+      })
+    );
+  }
+
   async fetchRepoContents(owner: string, repo: string, path: string = ''): Promise<GitHubNode[]> {
     const token = this.getToken();
     const headers: HeadersInit = {
@@ -93,6 +103,34 @@ export class GitHubService {
     const res = await fetch(url, { headers });
     if (!res.ok) throw new Error("Failed to load file content");
     return await res.text();
+  }
+
+  async commitFile(owner: string, repo: string, path: string, content: string, message: string, sha?: string): Promise<any> {
+    const token = this.getToken();
+    if (!token) throw new Error("Authentication required to commit.");
+
+    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+    const body = {
+      message: message,
+      content: this.toBase64(content),
+      sha: sha // Required if updating an existing file
+    };
+
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `token ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.message || "Commit failed");
+    }
+
+    return await res.json();
   }
 }
 

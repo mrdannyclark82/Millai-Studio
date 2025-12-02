@@ -528,13 +528,25 @@ export class GeminiService {
     const ai = getAI();
     let nextStartTime = 0;
     
-    // Setup Audio Contexts
+    // Check Media Support
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Media API not supported (requires HTTPS)");
+    }
+
     const inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 16000});
     const outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
     const outputNode = outputAudioContext.createGain();
     outputNode.connect(outputAudioContext.destination);
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    let stream: MediaStream;
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e: any) {
+        console.error("Audio access failed", e);
+        if (e.name === 'NotFoundError') throw new Error("Microphone not found");
+        if (e.name === 'NotAllowedError') throw new Error("Microphone permission denied");
+        throw e;
+    }
 
     const sessionPromise = ai.live.connect({
         model: MODELS.LIVE,
