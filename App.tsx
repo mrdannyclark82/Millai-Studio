@@ -471,6 +471,11 @@ function App() {
         };
         if (ext && mimeMap[ext]) mimeType = mimeMap[ext];
     }
+    
+    // Fallback if still empty or unmapped - crucial for "Unsupported MIME type" error
+    if (!mimeType) {
+        mimeType = 'text/plain';
+    }
 
     const reader = new FileReader();
     reader.onloadend = () => {
