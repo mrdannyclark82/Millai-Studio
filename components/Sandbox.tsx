@@ -247,7 +247,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
     if (isConsoleOpen) logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs, isConsoleOpen]);
 
-  // Real-time Linting
+  // Real-time Linting (Using Prettier Standalone)
   useEffect(() => {
     const timer = setTimeout(async () => {
       const currentContent = files[activeFile]?.content;
@@ -257,30 +257,57 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
       }
       try {
         let parser = 'babel';
-        if (activeFile.endsWith('.html')) parser = 'html';
-        else if (activeFile.endsWith('.css')) parser = 'css';
-        else if (activeFile.endsWith('.json')) parser = 'json';
-
+        let plugins = [];
+        
         // @ts-ignore
-        const prettier = await import('prettier');
-        // @ts-ignore
-        const parserBabel = await import('prettier/plugins/babel');
+        const prettier = await import('prettier/standalone');
         // @ts-ignore
         const parserEstree = await import('prettier/plugins/estree');
-        // @ts-ignore
-        const parserHtml = await import('prettier/plugins/html');
-        // @ts-ignore
-        const parserPostcss = await import('prettier/plugins/postcss');
+        plugins.push(parserEstree); // Required for most JS parsing in v3
+
+        if (activeFile.endsWith('.html')) {
+            parser = 'html';
+            // @ts-ignore
+            const parserHtml = await import('prettier/plugins/html');
+            plugins.push(parserHtml);
+            // @ts-ignore
+            const parserBabel = await import('prettier/plugins/babel');
+            plugins.push(parserBabel);
+        }
+        else if (activeFile.endsWith('.css')) {
+            parser = 'css';
+            // @ts-ignore
+            const parserPostcss = await import('prettier/plugins/postcss');
+            plugins.push(parserPostcss);
+        }
+        else if (activeFile.endsWith('.json')) {
+             parser = 'json';
+             // @ts-ignore
+             const parserBabel = await import('prettier/plugins/babel');
+             plugins.push(parserBabel);
+        }
+        else {
+             // JS/TS
+             // @ts-ignore
+             const parserBabel = await import('prettier/plugins/babel');
+             plugins.push(parserBabel);
+        }
 
         await prettier.format(currentContent, {
             parser,
-            plugins: [parserBabel, parserHtml, parserPostcss, parserEstree],
+            plugins,
             singleQuote: true,
         });
         setLintError(null);
       } catch (e: any) {
-        const msg = e.message ? e.message.split('\n')[0] : 'Syntax Error';
-        setLintError(msg);
+        // Prettier errors often have a loc object
+        const loc = e.loc ? `L${e.loc.start.line}:C${e.loc.start.column}` : '';
+        // Clean up message
+        let msg = e.message || 'Syntax Error';
+        if (msg.includes(' (')) msg = msg.substring(0, msg.lastIndexOf(' ('));
+        msg = msg.split('\n')[0];
+        
+        setLintError(`${loc ? `[${loc}] ` : ''}${msg}`);
       }
     }, 1000); 
     return () => clearTimeout(timer);
@@ -290,10 +317,6 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isResizingSidebar) {
-        // Calculate offset based on Sandbox position (right side)
-        // Since Sandbox is absolute or flexed to right, e.clientX is global.
-        // We need sidebar relative to Sandbox container
-        // Simplified: Just use movement
         setSidebarWidth(prev => Math.max(150, Math.min(400, prev + e.movementX)));
       }
       if (isResizingConsole) {
@@ -301,8 +324,6 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
         setConsoleHeight(Math.max(32, Math.min(600, newHeight)));
       }
       if (isResizingSplit) {
-          // Adjust based on movement for simpler relative sizing
-          // This assumes split view is active
           setEditorWidthPercentage(prev => Math.max(20, Math.min(80, prev + (e.movementX / (width || window.innerWidth)) * 100)));
       }
     };
@@ -416,23 +437,38 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
     if (!currentContent) return;
     try {
       let parser = 'babel';
-      if (activeFile.endsWith('.html')) parser = 'html';
-      else if (activeFile.endsWith('.css')) parser = 'css';
-
+      let plugins = [];
+      
       // @ts-ignore
-      const prettier = await import('prettier');
-      // @ts-ignore
-      const parserBabel = await import('prettier/plugins/babel');
+      const prettier = await import('prettier/standalone');
       // @ts-ignore
       const parserEstree = await import('prettier/plugins/estree');
-      // @ts-ignore
-      const parserHtml = await import('prettier/plugins/html');
-      // @ts-ignore
-      const parserPostcss = await import('prettier/plugins/postcss');
+      plugins.push(parserEstree);
+
+      if (activeFile.endsWith('.html')) {
+          parser = 'html';
+          // @ts-ignore
+          const parserHtml = await import('prettier/plugins/html');
+          plugins.push(parserHtml);
+          // @ts-ignore
+          const parserBabel = await import('prettier/plugins/babel');
+          plugins.push(parserBabel);
+      }
+      else if (activeFile.endsWith('.css')) {
+          parser = 'css';
+          // @ts-ignore
+          const parserPostcss = await import('prettier/plugins/postcss');
+          plugins.push(parserPostcss);
+      }
+      else {
+           // @ts-ignore
+           const parserBabel = await import('prettier/plugins/babel');
+           plugins.push(parserBabel);
+      }
 
       const formatted = await prettier.format(currentContent, {
         parser,
-        plugins: [parserBabel, parserHtml, parserPostcss, parserEstree],
+        plugins,
         singleQuote: true,
         printWidth: 80,
       });
@@ -659,7 +695,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
                 </div>
                 
                 <div className="bg-slate-900 p-1 text-[10px] text-slate-500 border-t border-slate-800 flex justify-between items-center px-2 shrink-0">
-                    <div className={lintError ? 'text-red-400' : 'text-green-500'}>
+                    <div className={lintError ? 'text-red-400 truncate max-w-[300px]' : 'text-green-500'} title={lintError || 'Valid'}>
                         {lintError ? `❌ ${lintError}` : '✅ Valid'}
                     </div>
                     <div>{files[activeFile]?.language} | {files[activeFile]?.content.length} chars</div>
