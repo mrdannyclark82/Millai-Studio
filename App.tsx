@@ -443,16 +443,50 @@ function App() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    
+    // Check if it's a TFLite file to prevent uploading to Chat (as Gemini won't understand it properly via inlineData usually)
+    if (ext === 'tflite') {
+        alert("For .tflite models, please use the 'Offline Models' tool in the System menu.");
+        e.target.value = '';
+        return;
+    }
+
+    let mimeType = file.type;
+
+    // Infer mimetype for common code/doc formats if browser misses it
+    if (!mimeType || mimeType === '' || mimeType === 'application/octet-stream') {
+        const mimeMap: Record<string, string> = {
+            'pdf': 'application/pdf',
+            'txt': 'text/plain',
+            'md': 'text/markdown',
+            'csv': 'text/csv',
+            'js': 'text/javascript',
+            'ts': 'text/typescript',
+            'json': 'application/json',
+            'py': 'text/x-python',
+            'html': 'text/html',
+            'css': 'text/css'
+        };
+        if (ext && mimeMap[ext]) mimeType = mimeMap[ext];
+    }
+
     const reader = new FileReader();
     reader.onloadend = () => {
         const base64 = (reader.result as string).split(',')[1];
         let type = MediaType.DOCUMENT;
-        if (file.type.startsWith('image/')) type = MediaType.IMAGE;
-        if (file.type.startsWith('audio/')) type = MediaType.AUDIO;
         
-        setAttachments(prev => [...prev, { type, data: base64, mimeType: file.type, name: file.name }]);
+        if (mimeType.startsWith('image/')) type = MediaType.IMAGE;
+        else if (mimeType.startsWith('audio/')) type = MediaType.AUDIO;
+        else if (mimeType === 'application/pdf' || mimeType.startsWith('text/') || mimeType.includes('json') || mimeType.includes('javascript') || mimeType.includes('python')) {
+            type = MediaType.DOCUMENT;
+        }
+        
+        setAttachments(prev => [...prev, { type, data: base64, mimeType, name: file.name }]);
     };
     reader.readAsDataURL(file);
+    e.target.value = ''; // Reset to allow same file selection
   };
 
   const playTTS = async (text: string) => {
@@ -700,6 +734,11 @@ function App() {
                          <div key={i} className="relative w-16 h-16 bg-slate-800 rounded-lg flex items-center justify-center border border-slate-700 overflow-hidden group">
                              {att.type === MediaType.IMAGE ? (
                                  <img src={`data:${att.mimeType};base64,${att.data}`} className="w-full h-full object-cover" />
+                             ) : att.type === MediaType.DOCUMENT ? (
+                                 <div className="flex flex-col items-center justify-center text-center p-1">
+                                     <span className="text-xs text-slate-300 font-bold break-all line-clamp-2">{att.name}</span>
+                                     <span className="text-[10px] text-slate-500 uppercase">{att.mimeType.split('/')[1] || 'DOC'}</span>
+                                 </div>
                              ) : (
                                  <span className="text-xs text-slate-400 uppercase">{att.type}</span>
                              )}
@@ -713,7 +752,7 @@ function App() {
                 <button onClick={() => fileInputRef.current?.click()} className="p-3 rounded-full bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
                     <Icons.PaperClip />
                 </button>
-                <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".jpg,.jpeg,.png,.webp,.pdf,.txt,.md,.csv,audio/*" />
+                <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".jpg,.jpeg,.png,.webp,.pdf,.txt,.md,.csv,.js,.ts,.json,.py,.tflite,.html,.css,audio/*" />
 
                 <div className="flex-1 relative">
                   <textarea 
