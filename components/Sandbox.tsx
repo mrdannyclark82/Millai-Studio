@@ -5,11 +5,23 @@ import Editor from 'react-simple-code-editor';
 import { githubService, GitHubNode } from '../services/githubService';
 import { geminiService } from '../services/geminiService';
 
+export interface VirtualFile {
+  name: string;
+  content: string;
+  language: string;
+}
+
+interface SandboxState {
+    files: Record<string, VirtualFile>;
+    activeFile: string;
+    fileTree: GitHubNode[];
+}
+
 interface SandboxProps {
   initialCode: string;
   isOpen: boolean;
   onClose: () => void;
-  onDiscuss?: (code: string) => void;
+  onStateChange?: (state: SandboxState) => void;
   width?: number; // Controlled width from App
 }
 
@@ -17,12 +29,6 @@ interface LogEntry {
   level: 'log' | 'error' | 'warn' | 'info';
   args: string[];
   timestamp: string;
-}
-
-interface VirtualFile {
-  name: string;
-  content: string;
-  language: string;
 }
 
 const STORAGE_KEY = 'milla_sandbox_files';
@@ -71,7 +77,7 @@ const getLanguage = (name: string) => {
   return 'text';
 };
 
-const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscuss, width }) => {
+const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onStateChange, width }) => {
   // Virtual File System State
   const [files, setFiles] = useState<Record<string, VirtualFile>>({
     'index.html': { name: 'index.html', content: initialCode || '<!-- Start -->', language: 'html' },
@@ -95,11 +101,6 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
   const [showTokenInput, setShowTokenInput] = useState(false);
   const [ghToken, setGhToken] = useState('');
   
-  // Commit State
-  const [showCommitModal, setShowCommitModal] = useState(false);
-  const [commitMessage, setCommitMessage] = useState('');
-  const [isCommitting, setIsCommitting] = useState(false);
-
   // Console UI State
   const [isConsoleOpen, setIsConsoleOpen] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -149,6 +150,13 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
       if (window.innerWidth < 768) setActiveTab('code');
     }
   }, [isOpen, initialCode]);
+
+  // Notify parent of state changes
+  useEffect(() => {
+    if (onStateChange) {
+        onStateChange({ files, activeFile, fileTree });
+    }
+  }, [files, activeFile, fileTree, onStateChange]);
 
   // Bundle Files for Preview
   const bundlePreview = () => {
@@ -247,7 +255,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
     if (isConsoleOpen) logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs, isConsoleOpen]);
 
-  // Real-time Linting (Using Prettier Standalone)
+  // Real-time Linting
   useEffect(() => {
     const timer = setTimeout(async () => {
       const currentContent = files[activeFile]?.content;
@@ -263,7 +271,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
         const prettier = await import('prettier/standalone');
         // @ts-ignore
         const parserEstree = await import('prettier/plugins/estree');
-        plugins.push(parserEstree); // Required for most JS parsing in v3
+        plugins.push(parserEstree);
 
         if (activeFile.endsWith('.html')) {
             parser = 'html';
@@ -300,13 +308,10 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
         });
         setLintError(null);
       } catch (e: any) {
-        // Prettier errors often have a loc object
         const loc = e.loc ? `L${e.loc.start.line}:C${e.loc.start.column}` : '';
-        // Clean up message
         let msg = e.message || 'Syntax Error';
         if (msg.includes(' (')) msg = msg.substring(0, msg.lastIndexOf(' ('));
         msg = msg.split('\n')[0];
-        
         setLintError(`${loc ? `[${loc}] ` : ''}${msg}`);
       }
     }, 1000); 
@@ -563,12 +568,6 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onDiscu
                 <button onClick={() => setShowGenerateInput(!showGenerateInput)} className={`flex items-center gap-1 px-3 py-1 rounded text-xs font-medium transition-all ${showGenerateInput ? 'bg-milla-600 text-white' : 'bg-milla-900/20 text-milla-400 hover:bg-milla-900/30'}`}>
                     AI Gen 🤖
                 </button>
-
-                {onDiscuss && (
-                    <button onClick={() => onDiscuss(files[activeFile]?.content || '')} className="flex items-center gap-1 px-3 py-1 bg-blue-900/20 text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 rounded text-xs font-medium shadow-sm border border-blue-900/30">
-                        Discuss 💬
-                    </button>
-                )}
             </div>
 
             <button onClick={onClose} className="p-2 text-slate-500 hover:text-white transition-colors">
