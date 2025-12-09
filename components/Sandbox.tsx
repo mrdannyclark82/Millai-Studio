@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 // @ts-ignore
 import Editor from 'react-simple-code-editor';
 import { githubService, GitHubNode } from '../services/githubService';
-import { geminiService } from '../services/geminiService';
+import { useSandboxStore } from '../stores/sandboxStore';
 
 export interface VirtualFile {
   name: string;
@@ -11,17 +11,10 @@ export interface VirtualFile {
   language: string;
 }
 
-interface SandboxState {
-    files: Record<string, VirtualFile>;
-    activeFile: string;
-    fileTree: GitHubNode[];
-}
-
 interface SandboxProps {
   initialCode: string;
   isOpen: boolean;
   onClose: () => void;
-  onStateChange?: (state: SandboxState) => void;
   width?: number; // Controlled width from App
 }
 
@@ -34,29 +27,51 @@ interface LogEntry {
 const STORAGE_KEY = 'milla_sandbox_files';
 
 // File Explorer Item Component
-const FileItem: React.FC<{ 
-  name: string, 
-  isActive: boolean, 
-  onClick: () => void,
-  onDelete?: () => void,
-  isRepo?: boolean 
-}> = ({ name, isActive, onClick, onDelete, isRepo }) => (
-  <div 
-    onClick={onClick}
-    className={`group flex items-center justify-between py-1.5 px-3 cursor-pointer text-xs font-mono transition-colors border-l-2 ${isActive ? 'bg-slate-800 border-milla-500 text-milla-300' : 'border-transparent text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
+const FileItem: React.FC<{
+  name: string;
+  isActive: boolean;
+  onClick: () => void;
+  onDelete?: () => void;
+  isRepo?: boolean;
+  isPinned: boolean;
+  onTogglePin: () => void;
+}> = ({ name, isActive, onClick, onDelete, isRepo, isPinned, onTogglePin }) => (
+  <div
+    className={`group flex items-center justify-between py-1.5 px-3 cursor-pointer text-xs font-mono transition-colors border-l-2 ${
+      isActive
+        ? 'bg-slate-800 border-milla-500 text-milla-300'
+        : 'border-transparent text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+    }`}
   >
-    <div className="flex items-center gap-2 truncate">
+    <div className="flex items-center gap-2 truncate" onClick={onClick}>
       <span>{getIcon(name)}</span>
       <span className="truncate">{name}</span>
     </div>
-    {onDelete && !isRepo && (
-      <button 
-        onClick={(e) => { e.stopPropagation(); onDelete(); }} 
-        className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 p-1"
-      >
-        ×
-      </button>
-    )}
+    <div className="flex items-center gap-1">
+      {onTogglePin && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onTogglePin();
+          }}
+          className={`p-1 rounded-full ${isPinned ? 'text-blue-400' : 'text-slate-500 hover:text-white'} opacity-0 group-hover:opacity-100`}
+          title={isPinned ? 'Unpin' : 'Pin for AI context'}
+        >
+          {isPinned ? '📌' : '🧷'}
+        </button>
+      )}
+      {onDelete && !isRepo && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 p-1"
+        >
+          ×
+        </button>
+      )}
+    </div>
   </div>
 );
 
@@ -77,30 +92,32 @@ const getLanguage = (name: string) => {
   return 'text';
 };
 
-const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onStateChange, width }) => {
-  // Virtual File System State
-  const [files, setFiles] = useState<Record<string, VirtualFile>>({
+const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, width }) => {
+  const { sandboxState, pinnedFiles, setSandboxState, togglePin } = useSandboxStore();
+
+  const files = sandboxState?.files || {
     'index.html': { name: 'index.html', content: initialCode || '<!-- Start -->', language: 'html' },
     'style.css': { name: 'style.css', content: 'body { font-family: sans-serif; padding: 20px; color: #333; }', language: 'css' },
     'script.js': { name: 'script.js', content: 'console.log("Hello from Milla Sandbox!");', language: 'javascript' }
-  });
-  const [activeFile, setActiveFile] = useState('index.html');
+  };
+  const activeFile = sandboxState?.activeFile || 'index.html';
+  const fileTree = sandboxState?.fileTree || [];
+
   const [newFileName, setNewFileName] = useState('');
   const [isAddingFile, setIsAddingFile] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'preview' | 'code' | 'split'>('split');
-  const [key, setKey] = useState(0); 
+  const [key, setKey] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [debouncedPreviewCode, setDebouncedPreviewCode] = useState('');
-  
+
   // GitHub State
   const [repoUrl, setRepoUrl] = useState('');
-  const [currentRepo, setCurrentRepo] = useState<{owner: string, repo: string} | null>(null);
-  const [fileTree, setFileTree] = useState<GitHubNode[]>([]);
+  const [currentRepo, setCurrentRepo] = useState<{ owner: string; repo: string } | null>(null);
   const [isLoadingRepo, setIsLoadingRepo] = useState(false);
   const [showTokenInput, setShowTokenInput] = useState(false);
   const [ghToken, setGhToken] = useState('');
-  
+
   // Console UI State
   const [isConsoleOpen, setIsConsoleOpen] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -110,7 +127,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
   const [sidebarWidth, setSidebarWidth] = useState(200);
   const [editorWidthPercentage, setEditorWidthPercentage] = useState(50);
   const [consoleHeight, setConsoleHeight] = useState(160);
-  
+
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [isResizingConsole, setIsResizingConsole] = useState(false);
   const [isResizingSplit, setIsResizingSplit] = useState(false);
@@ -126,37 +143,32 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
   // Initialization
   useEffect(() => {
     if (isOpen) {
-      // Try load from local storage
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          setFiles(parsed);
-          // If initialCode changed significantly (e.g. from Discuss), overwrite index.html
-          if (initialCode && initialCode !== '<!-- Start coding here -->') {
-            setFiles(prev => ({
-              ...prev,
-              'index.html': { name: 'index.html', content: initialCode, language: 'html' }
-            }));
-            setActiveFile('index.html');
-          }
-        } catch (e) { console.error("FS Load Error", e); }
+          setSandboxState({ files: parsed, activeFile: Object.keys(parsed)[0], fileTree: [] });
+        } catch (e) {
+          console.error("FS Load Error", e);
+          // If parsing fails, reset to initial code
+          setSandboxState({ files: { 'index.html': { name: 'index.html', content: initialCode || '<!-- Start -->', language: 'html' } }, activeFile: 'index.html', fileTree: [] });
+        }
       } else if (initialCode) {
-        setFiles(prev => ({ ...prev, 'index.html': { ...prev['index.html'], content: initialCode } }));
+        setSandboxState({ files: { 'index.html': { name: 'index.html', content: initialCode, language: 'html' } }, activeFile: 'index.html', fileTree: [] });
       }
-      
+
       const t = githubService.getToken();
       if (t) setGhToken(t);
       if (window.innerWidth < 768) setActiveTab('code');
     }
-  }, [isOpen, initialCode]);
+  }, [isOpen, initialCode, setSandboxState]);
 
-  // Notify parent of state changes
+  // Sync sandboxState with store
   useEffect(() => {
-    if (onStateChange) {
-        onStateChange({ files, activeFile, fileTree });
+    if (sandboxState && isOpen) { // Only save if sandbox is open and state exists
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sandboxState.files));
     }
-  }, [files, activeFile, fileTree, onStateChange]);
+  }, [sandboxState, isOpen]);
 
   // Bundle Files for Preview
   const bundlePreview = () => {
@@ -164,14 +176,12 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
     const css = files['style.css']?.content || '';
     const js = files['script.js']?.content || '';
 
-    // Inject CSS
     if (html.includes('</head>')) {
       html = html.replace('</head>', `<style>${css}</style></head>`);
     } else {
       html += `<style>${css}</style>`;
     }
 
-    // Inject JS
     if (html.includes('</body>')) {
       html = html.replace('</body>', `<script>${js}</script></body>`);
     } else {
@@ -185,21 +195,14 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
   useEffect(() => {
       const handler = setTimeout(() => {
           setDebouncedPreviewCode(bundlePreview());
-      }, 800); 
+      }, 800);
       return () => clearTimeout(handler);
   }, [files]);
 
-  // Auto-save local
-  useEffect(() => {
-    if (isOpen) {
-       localStorage.setItem(STORAGE_KEY, JSON.stringify(files));
-    }
-  }, [files, isOpen]);
-
   const updateFileContent = (newContent: string) => {
-    setFiles(prev => ({
-      ...prev,
-      [activeFile]: { ...prev[activeFile], content: newContent }
+    setSandboxState(prev => ({
+      ...prev!,
+      files: { ...prev!.files, [activeFile]: { ...prev!.files[activeFile], content: newContent } }
     }));
   };
 
@@ -210,11 +213,11 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
       alert("File exists");
       return;
     }
-    setFiles(prev => ({
-      ...prev,
-      [name]: { name, content: '', language: getLanguage(name) }
+    setSandboxState(prev => ({
+      ...prev!,
+      files: { ...prev!.files, [name]: { name, content: '', language: getLanguage(name) } },
+      activeFile: name,
     }));
-    setActiveFile(name);
     setNewFileName('');
     setIsAddingFile(false);
   };
@@ -222,13 +225,14 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
   const handleDeleteFile = (name: string) => {
     if (name === 'index.html') return alert("Cannot delete entry file.");
     if (!confirm(`Delete ${name}?`)) return;
-    
-    setFiles(prev => {
-      const copy = { ...prev };
-      delete copy[name];
-      return copy;
-    });
-    if (activeFile === name) setActiveFile('index.html');
+
+    const newFiles = { ...files };
+    delete newFiles[name];
+    setSandboxState(prev => ({
+      ...prev!,
+      files: newFiles,
+      activeFile: activeFile === name ? 'index.html' : activeFile,
+    }));
   };
 
   // Listen for iframe logs
@@ -266,7 +270,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
       try {
         let parser = 'babel';
         let plugins = [];
-        
+
         // @ts-ignore
         const prettier = await import('prettier/standalone');
         // @ts-ignore
@@ -314,7 +318,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
         msg = msg.split('\n')[0];
         setLintError(`${loc ? `[${loc}] ` : ''}${msg}`);
       }
-    }, 1000); 
+    }, 1000);
     return () => clearTimeout(timer);
   }, [files, activeFile]);
 
@@ -365,13 +369,13 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
         alert("Invalid GitHub URL. Use format: owner/repo");
         return;
     }
-    
+
     setIsLoadingRepo(true);
     try {
         const nodes = await githubService.fetchRepoContents(parsed.owner, parsed.repo);
-        setFileTree(nodes);
+        setSandboxState(prev => ({ ...prev!, fileTree: nodes }));
         setCurrentRepo(parsed);
-        setIsSidebarOpen(true); 
+        setIsSidebarOpen(true);
     } catch (e: any) {
         if (e.message.includes('not found') || e.message.includes('token')) {
             alert("Repository not found or private.\nPlease add a Personal Access Token below.");
@@ -389,18 +393,18 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
         try {
             if (!currentRepo) return;
             const nodes = await githubService.fetchRepoContents(currentRepo.owner, currentRepo.repo, node.path);
-            setFileTree(nodes);
+            setSandboxState(prev => ({ ...prev!, fileTree: nodes }));
         } catch (e) { console.error(e); }
     } else {
         try {
             const content = await githubService.fetchFileContent(node.url);
             // Add to local files for editing
             const name = node.path.split('/').pop() || node.path;
-            setFiles(prev => ({
-              ...prev,
-              [name]: { name, content, language: getLanguage(name) }
+            setSandboxState(prev => ({
+              ...prev!,
+              files: { ...prev!.files, [name]: { name, content, language: getLanguage(name) } },
+              activeFile: name,
             }));
-            setActiveFile(name);
             if (activeTab === 'preview') setActiveTab('code');
         } catch (e) { console.error(e); }
     }
@@ -410,7 +414,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
     githubService.initialize(ghToken);
     setShowTokenInput(false);
   };
-  
+
   // --- Utility ---
   const handleRun = () => {
     setKey(prev => prev + 1);
@@ -424,10 +428,12 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
     setIsGenerating(true);
     setLogs(prev => [...prev, { level: 'info', args: [`Generating code for ${activeFile}...`], timestamp: new Date().toLocaleTimeString() }]);
     try {
-        // Context aware generation
-        const generated = await geminiService.generateCode(generatePrompt, getLanguage(activeFile));
-        updateFileContent(generated);
-        setLogs(prev => [...prev, { level: 'info', args: ['Generation complete.'], timestamp: new Date().toLocaleTimeString() }]);
+        // Code generation is now handled via chat.
+        // The prompt entered here will be sent as a message to the chat.
+        // A placeholder for now.
+        setLogs(prev => [...prev, { level: 'info', args: [`Prompt "${generatePrompt}" sent to chat for code generation.`], timestamp: new Date().toLocaleTimeString() }]);
+        // In a real scenario, you'd likely trigger a chat message here
+        // For example: useChatStore.getState().setInput(generatePrompt); useChatStore.getState().generateResponse();
         setShowGenerateInput(false);
         setGeneratePrompt('');
     } catch (e) {
@@ -443,7 +449,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
     try {
       let parser = 'babel';
       let plugins = [];
-      
+
       // @ts-ignore
       const prettier = await import('prettier/standalone');
       // @ts-ignore
@@ -537,7 +543,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
   if (!isOpen) return null;
 
   return (
-    <div 
+    <div
       className="h-full flex flex-col bg-slate-900 border-l border-slate-800 shadow-2xl transition-none font-sans relative"
       style={{ width: width ? '100%' : 'auto' }}
     >
@@ -548,7 +554,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
                 <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`p-1.5 rounded hover:bg-slate-800 ${isSidebarOpen ? 'text-milla-400' : 'text-slate-500'}`}>
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
                 </button>
-                
+
                 <div className="hidden md:flex p-0.5 bg-slate-800 rounded-md">
                     <button onClick={() => setActiveTab('split')} className={`px-2 py-1 text-xs font-medium rounded-sm transition-colors ${activeTab === 'split' ? 'bg-milla-600 text-white' : 'text-slate-400 hover:text-white'}`}>Split</button>
                     <button onClick={() => setActiveTab('code')} className={`px-2 py-1 text-xs font-medium rounded-sm transition-colors ${activeTab === 'code' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}>Code</button>
@@ -578,11 +584,11 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
         {/* Generate Input */}
         {showGenerateInput && (
             <div className="p-2 bg-slate-800 border-t border-slate-700 flex gap-2 items-center">
-                <input 
+                <input
                     value={generatePrompt}
                     onChange={(e) => setGeneratePrompt(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleGenerateCode()}
-                    placeholder={`Generate code for ${activeFile}...`} 
+                    placeholder={`Generate code for ${activeFile}...`}
                     className="flex-1 bg-slate-900 text-white text-xs px-2 py-1.5 rounded border border-slate-700 focus:border-milla-500 focus:outline-none"
                     disabled={isGenerating}
                 />
@@ -595,33 +601,35 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
 
       {/* Workspace */}
       <div className="flex-1 flex overflow-hidden relative">
-        
+
         {/* Sidebar */}
-        <div 
+        <div
           style={{ width: isSidebarOpen ? sidebarWidth : 0 }}
           className={`${isSidebarOpen ? 'opacity-100' : 'opacity-0 overflow-hidden'} bg-slate-900 border-r border-slate-800 flex flex-col shrink-0 relative transition-none`}
         >
              <div className="p-2 text-[10px] uppercase font-bold text-slate-500 tracking-wider bg-slate-950/50">Local Files</div>
              <div className="flex-1 overflow-y-auto">
                  {Object.keys(files).map(name => (
-                     <FileItem 
-                        key={name} 
-                        name={name} 
-                        isActive={activeFile === name} 
-                        onClick={() => { setActiveFile(name); if(activeTab === 'preview') setActiveTab('code'); }}
+                     <FileItem
+                        key={name}
+                        name={name}
+                        isActive={activeFile === name}
+                        onClick={() => { setSandboxState(prev => ({...prev!, activeFile: name})); if(activeTab === 'preview') setActiveTab('code'); }}
                         onDelete={() => handleDeleteFile(name)}
+                        isPinned={pinnedFiles.includes(name)}
+                        onTogglePin={() => togglePin(name)}
                      />
                  ))}
-                 
+
                  {isAddingFile ? (
                    <div className="p-2 flex gap-1">
-                     <input 
+                     <input
                        autoFocus
-                       value={newFileName} 
+                       value={newFileName}
                        onChange={e => setNewFileName(e.target.value)}
                        onKeyDown={e => e.key === 'Enter' && handleCreateFile()}
                        onBlur={() => setIsAddingFile(false)}
-                       className="w-full bg-slate-800 text-xs px-1 py-0.5 rounded border border-milla-500 text-white" 
+                       className="w-full bg-slate-800 text-xs px-1 py-0.5 rounded border border-milla-500 text-white"
                        placeholder="name.ext"
                      />
                    </div>
@@ -635,7 +643,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
              <div className="p-2 text-[10px] uppercase font-bold text-slate-500 tracking-wider bg-slate-950/50 border-t border-slate-800">GitHub</div>
              <div className="p-2 border-b border-slate-800 space-y-2">
                  <div className="flex gap-1">
-                     <input 
+                     <input
                        value={repoUrl}
                        onChange={e => setRepoUrl(e.target.value)}
                        placeholder="owner/repo"
@@ -652,24 +660,26 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
              </div>
              <div className="flex-1 overflow-y-auto min-h-[100px]">
                  {fileTree.map((node) => (
-                    <FileItem 
-                        key={node.sha} 
-                        name={node.path.split('/').pop() || node.path} 
-                        isActive={false} 
+                    <FileItem
+                        key={node.sha}
+                        name={node.path.split('/').pop() || node.path}
+                        isActive={false}
                         isRepo={true}
-                        onClick={() => handleGitHubFileClick(node)} 
+                        onClick={() => handleGitHubFileClick(node)}
+                        isPinned={pinnedFiles.includes(node.path)}
+                        onTogglePin={() => togglePin(node.path)}
                     />
                  ))}
              </div>
-             
+
              {isSidebarOpen && <div onMouseDown={(e) => {e.preventDefault(); setIsResizingSidebar(true);}} className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-milla-500/50 z-20" />}
         </div>
 
         {/* Split Container */}
         <div className="flex-1 flex flex-col md:flex-row min-w-0 relative bg-slate-950">
-             
+
              {/* Code Editor */}
-             <div 
+             <div
                 className={`flex flex-col relative ${activeTab === 'split' ? '' : activeTab === 'code' ? 'w-full h-full' : 'hidden'}`}
                 style={activeTab === 'split' ? { width: `${editorWidthPercentage}%` } : {}}
              >
@@ -692,7 +702,7 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
                         />
                     </div>
                 </div>
-                
+
                 <div className="bg-slate-900 p-1 text-[10px] text-slate-500 border-t border-slate-800 flex justify-between items-center px-2 shrink-0">
                     <div className={lintError ? 'text-red-400 truncate max-w-[300px]' : 'text-green-500'} title={lintError || 'Valid'}>
                         {lintError ? `❌ ${lintError}` : '✅ Valid'}
@@ -712,14 +722,14 @@ const Sandbox: React.FC<SandboxProps> = ({ initialCode, isOpen, onClose, onState
                     <iframe
                         key={key}
                         title="Sandbox Preview"
-                        srcDoc={debouncedPreviewCode} 
+                        srcDoc={debouncedPreviewCode}
                         className="absolute inset-0 w-full h-full border-none"
                         sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"
                     />
                 </div>
-                
+
                 {/* Console */}
-                <div 
+                <div
                     style={{ height: isConsoleOpen ? consoleHeight : 28 }}
                     className={`border-t border-slate-300 bg-slate-900 flex flex-col relative shrink-0 text-slate-100`}
                 >

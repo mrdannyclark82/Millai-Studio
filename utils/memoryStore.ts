@@ -1,32 +1,35 @@
 import { Message } from '../types';
 
-const STORAGE_KEY = 'milla_chat_history';
+import { db } from './database';
+import { Message } from '../types';
+
+const saveHistory = async (messages: Message[]): Promise<void> => {
+  try {
+    await db.messages.bulkPut(messages);
+  } catch (error) {
+    console.error('Failed to save history to IndexedDB', error);
+  }
+};
+
+const loadHistory = async (): Promise<Message[]> => {
+  try {
+    return await db.messages.orderBy('timestamp').toArray();
+  } catch (error) {
+    console.error('Failed to load history from IndexedDB', error);
+    return [];
+  }
+};
+
+const clearHistory = async (): Promise<void> => {
+  try {
+    await db.messages.clear();
+  } catch (error) {
+    console.error('Failed to clear history from IndexedDB', error);
+  }
+};
 
 export const memoryStore = {
-  saveHistory: (messages: Message[]) => {
-    try {
-      // Basic safeguard: If messages are getting too large for localStorage (approx 5MB),
-      // we might want to trim old attachments or warn.
-      // For now, we just attempt save.
-      const serialized = JSON.stringify(messages);
-      localStorage.setItem(STORAGE_KEY, serialized);
-    } catch (e) {
-      console.warn("Failed to save memory to localStorage (likely full)", e);
-    }
-  },
-
-  loadHistory: (): Message[] | null => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (!saved) return null;
-      return JSON.parse(saved);
-    } catch (e) {
-      console.error("Failed to parse memory", e);
-      return null;
-    }
-  },
-
-  clearMemory: () => {
-    localStorage.removeItem(STORAGE_KEY);
-  }
+  saveHistory,
+  loadHistory,
+  clearHistory,
 };

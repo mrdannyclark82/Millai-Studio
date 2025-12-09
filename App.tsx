@@ -1,10 +1,8 @@
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { GenerateContentResponse } from '@google/genai';
-import { geminiService } from './services/geminiService';
-import { Message, MessageRole, MediaType, Attachment } from './types';
+import React, { useRef, useEffect, useCallback } from 'react';
+import { MessageRole, MediaType } from './types';
 import LiveSession from './components/LiveSession';
-import Sandbox, { VirtualFile } from './components/Sandbox';
+import Sandbox from './components/Sandbox';
 import Orb from './components/Orb';
 import NeuralGalaxy from './components/NeuralGalaxy';
 import ToDoList from './components/ToDoList';
@@ -12,22 +10,19 @@ import YouTubePlayer from './components/YouTubePlayer';
 import CreativeStudio from './components/CreativeStudio';
 import MorningSync from './components/MorningSync';
 import PodcastPlayer from './components/PodcastPlayer';
-import DataChart from './components/DataChart';
-import ThoughtLogger from './components/ThoughtLogger';
 import BackupManager from './components/BackupManager';
 import OfflineModelRunner from './components/OfflineModelRunner';
 import DatabaseConnector from './components/DatabaseConnector';
 import ReactMarkdown from 'react-markdown';
-import { applyTheme, ThemeType } from './utils/theme';
-import { memoryStore } from './utils/memoryStore';
-import { memoryService, MemoryFact } from './services/memoryService';
-import { VOICE_OPTIONS, MODELS } from './constants';
+import { applyTheme } from './utils/theme';
 import { googleIntegration } from './services/googleIntegrationService';
-import { GitHubNode } from './services/githubService';
+import { useChatStore } from './stores/chatStore';
+import { useUIStore } from './stores/uiStore';
+import { useSandboxStore } from './stores/sandboxStore';
 
-// ... (Existing Imports/Icons/Helpers remain unchanged) ...
+// Icons and SidebarSection can remain the same as they are stateless
+// ... (Icons and SidebarSection components)
 
-// Re-declare icons for brevity in this update, assuming they exist from previous file
 const Icons = {
   Send: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>,
   Mic: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>,
@@ -61,8 +56,6 @@ const Icons = {
   ChevronRight: () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>,
   Database: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
 };
-
-// Sidebar Helper
 const SidebarSection = ({ title, children, isOpen, onToggle }: { title: string, children?: React.ReactNode, isOpen: boolean, onToggle: () => void }) => (
   <div className="border-b border-slate-800">
     <button onClick={onToggle} className="w-full flex items-center justify-between px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider hover:bg-slate-800/50 transition-colors">
@@ -77,408 +70,227 @@ const SidebarSection = ({ title, children, isOpen, onToggle }: { title: string, 
   </div>
 );
 
-// Helpers
-const extractCode = (text: string): string | null => {
-  const match = text.match(/```(?:html|javascript|js|react|tsx)?\s*([\s\S]*?)```/);
-  return match ? match[1] : null;
-};
-const extractChartJson = (text: string): any | null => {
-  if (!text) return null;
-  const match = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-  if (match) { try { return JSON.parse(match[1]); } catch (e) { return null; } }
-  return null;
-};
 const extractYouTubeId = (text: string): string | null => {
   const regExp = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
   const match = text.match(regExp);
   return match ? match[1] : null;
 };
 
-// ... (GoogleUser interface etc)
-
 function App() {
-  // ... (Existing State) ...
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [isLive, setIsLive] = useState(false);
-  const [liveConfig, setLiveConfig] = useState({ video: false, edge: false, screen: false });
-  const [isSandboxOpen, setIsSandboxOpen] = useState(false);
-  const [isGalaxyOpen, setIsGalaxyOpen] = useState(false);
-  const [isStudioOpen, setIsStudioOpen] = useState(false);
-  const [isToDoOpen, setIsToDoOpen] = useState(false);
-  const [isMorningSyncOpen, setIsMorningSyncOpen] = useState(false);
-  const [isPodcastOpen, setIsPodcastOpen] = useState(false);
-  const [isBackupOpen, setIsBackupOpen] = useState(false);
-  const [isOfflineModelOpen, setIsOfflineModelOpen] = useState(false);
-  const [isDatabaseOpen, setIsDatabaseOpen] = useState(false); // NEW
+  const { messages, input, attachments, isGenerating, setInput, setAttachments, generateResponse, loadHistory } = useChatStore();
+  const {
+    isSandboxOpen, isGalaxyOpen, isStudioOpen, isToDoOpen, isMorningSyncOpen, isPodcastOpen, isBackupOpen, isOfflineModelOpen, isDatabaseOpen, isLive, liveConfig, sectionsOpen, activeTheme, customBackground, isGalaxyBackground, sandboxWidth, youtubeVideoId,
+    toggleSandbox, toggleGalaxy, toggleStudio, toggleToDo, toggleMorningSync, togglePodcast, toggleBackup, toggleOfflineModel, toggleDatabase, startLive, stopLive, toggleSection, setTheme, setCustomBackground, toggleGalaxyBackground, setSandboxWidth, setYoutubeVideoId,
+  } = useUIStore();
+  const { sandboxCode, setSandboxCode, setSandboxState } = useSandboxStore();
 
-  const [isThinking, setIsThinking] = useState(false);
-  const [showThoughts, setShowThoughts] = useState(true);
-  const [isMapsEnabled, setIsMapsEnabled] = useState(false);
-  const [isSearchEnabled, setIsSearchEnabled] = useState(false);
-  const [autoTTS, setAutoTTS] = useState(false);
-  const [selectedVoice, setSelectedVoice] = useState('Kore');
-  const [sectionsOpen, setSectionsOpen] = useState({
-    core: true, creative: true, productivity: false, intelligence: true, system: false, settings: false
-  });
-  const [activeTheme, setActiveTheme] = useState<ThemeType>('default');
-  const [customBackground, setCustomBackground] = useState<{type: 'image'|'video', url: string} | null>(null);
-  const [isGalaxyBackground, setIsGalaxyBackground] = useState(false);
-  const [sandboxCode, setSandboxCode] = useState('');
-  const [sandboxWidth, setSandboxWidth] = useState(600); 
-  const [isResizingSandbox, setIsResizingSandbox] = useState(false);
-  const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const [user, setUser] = useState<any>(null);
-  const [isGoogleConnected, setIsGoogleConnected] = useState(false);
-  const [googleClientId, setGoogleClientId] = useState('');
-  const [showClientIdInput, setShowClientIdInput] = useState(false);
-  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [user, setUser] = React.useState<any>(null);
+  const [isGoogleConnected, setIsGoogleConnected] = React.useState(false);
+  const [googleClientId, setGoogleClientId] = React.useState('');
+  const [showClientIdInput, setShowClientIdInput] = React.useState(false);
+  const [isAuthReady, setIsAuthReady] = React.useState(false);
 
-  // Refs
-  const recognitionRef = useRef<any>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const lastSpokenMessageId = useRef<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const tokenClient = useRef<any>(null);
-  const sandboxStateRef = useRef<{ files: Record<string, VirtualFile>, activeFile: string, fileTree: GitHubNode[] } | null>(null);
 
-  // ... (Existing Effects: Theme, Scroll, TTS, Sandbox Resize, Auth) ...
-  // Keeping them brief to fit context, assume they are same as previous
-  
-  // Auth Logic (Same as before)
+  useEffect(() => {
+    loadHistory();
+    applyTheme(activeTheme);
+  }, [loadHistory, activeTheme]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
   const initGoogleAuth = useCallback((clientId: string) => {
-    // Cast window to any to access google property
-    if (!(window as any).google?.accounts?.oauth2) { setTimeout(() => initGoogleAuth(clientId), 500); return; }
+    if (!(window as any).google?.accounts?.oauth2) {
+      setTimeout(() => initGoogleAuth(clientId), 500);
+      return;
+    }
     setIsAuthReady(true);
-    // @ts-ignore
     tokenClient.current = (window as any).google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
-        scope: 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
-        ux_mode: 'popup',
-        callback: async (response: any) => {
-            if (response.error) { alert("Auth Failed: " + response.error); return; }
-            if (response.access_token) {
-                googleIntegration.setAccessToken(response.access_token);
-                setIsGoogleConnected(true);
-                try {
-                    const profileRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-                        headers: { 'Authorization': `Bearer ${response.access_token}` }
-                    });
-                    setUser(await profileRes.json());
-                } catch (e) { console.error(e); }
-            }
-        },
+      client_id: clientId,
+      scope: 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+      ux_mode: 'popup',
+      callback: async (response: any) => {
+        if (response.error) {
+          alert('Auth Failed: ' + response.error);
+          return;
+        }
+        if (response.access_token) {
+          googleIntegration.setAccessToken(response.access_token);
+          setIsGoogleConnected(true);
+          try {
+            const profileRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+              headers: { Authorization: `Bearer ${response.access_token}` },
+            });
+            setUser(await profileRes.json());
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      },
     });
   }, []);
 
   useEffect(() => {
     const savedId = localStorage.getItem('google_client_id');
     const envId = process.env.GOOGLE_CLIENT_ID;
-    const finalId = savedId || (envId !== "MOCK_CLIENT_ID" ? envId : "");
-    if (finalId) { setGoogleClientId(finalId); initGoogleAuth(finalId); } 
-    else { setShowClientIdInput(true); }
-  }, []);
-
-  // ... (Other handlers same as before) ...
-  const handleSaveClientId = () => { if(googleClientId) { localStorage.setItem('google_client_id', googleClientId); initGoogleAuth(googleClientId); setShowClientIdInput(false); } };
-  const handleResetClientId = () => { localStorage.removeItem('google_client_id'); setGoogleClientId(''); setShowClientIdInput(true); setUser(null); setIsGoogleConnected(false); };
-  const connectGoogleWorkspace = () => tokenClient.current?.requestAccessToken();
-  const handleCheckEmail = async () => { /* ... */ };
-
-  // Memory Load
-  useEffect(() => {
-      const loaded = memoryStore.loadHistory();
-      if(loaded) setMessages(loaded);
-  }, []);
-  useEffect(() => { if(messages.length) memoryStore.saveHistory(messages); }, [messages]);
-
-  // Actions
-  const generateResponse = async (textOverride?: string) => {
-      const textToSend = textOverride || input;
-      if (!textToSend.trim() && attachments.length === 0) return;
-      
-      const userMsg: Message = { id: Date.now().toString(), role: MessageRole.USER, text: textToSend, attachments: [...attachments], timestamp: Date.now() };
-      setMessages(prev => [...prev, userMsg]);
-      setInput('');
-      setAttachments([]);
-      setIsGenerating(true);
-
-      // Check for YouTube Link in input
-      const ytId = extractYouTubeId(textToSend);
-      if (ytId) {
-          setYoutubeVideoId(ytId);
-      }
-
-      // Collect Context from Sandbox if Open
-      let codeContext = undefined;
-      if (isSandboxOpen && sandboxStateRef.current) {
-          const { activeFile, files, fileTree } = sandboxStateRef.current;
-          const currentContent = files[activeFile]?.content || '';
-          
-          let fileList = Object.keys(files).join(', ');
-          if (fileTree.length > 0) {
-              fileList += '\nRepo Structure: ' + fileTree.map(n => n.path).join(', ');
-          }
-          
-          codeContext = `Current Active File: ${activeFile}\nContent:\n${currentContent}\n\nAvailable Files:\n${fileList}`;
-          if (ytId) {
-             codeContext += `\n\nUser has also opened a YouTube video (ID: ${ytId}). Do not hallucinate content you cannot see, but you can discuss the fact that they are watching it.`;
-          }
-      } else if (ytId) {
-          codeContext = `User has opened a YouTube video (ID: ${ytId}). Do not hallucinate content you cannot see, but you can discuss the fact that they are watching it.`;
-      }
-
-      try {
-          const responseId = (Date.now() + 1).toString();
-          setMessages(prev => [...prev, { id: responseId, role: MessageRole.MODEL, text: '', timestamp: Date.now(), isThinking }]);
-          
-          const stream = await geminiService.sendMessageStream(
-              userMsg.text, 
-              userMsg.attachments?.map(a => ({data: a.data, mimeType: a.mimeType})) || [], 
-              isThinking, 
-              isMapsEnabled, 
-              isSearchEnabled, 
-              messages,
-              codeContext // Pass code context
-          );
-          
-          let currentResponseText = '';
-          for await (const chunk of stream) {
-              if (chunk.text) {
-                  currentResponseText += chunk.text;
-                  setMessages(prev => prev.map(m => m.id === responseId ? { ...m, text: currentResponseText } : m));
-              }
-          }
-      } catch (e) {
-          console.error(e);
-      } finally {
-          setIsGenerating(false);
-      }
-  };
+    const finalId = savedId || (envId !== 'MOCK_CLIENT_ID' ? envId : '');
+    if (finalId) {
+      setGoogleClientId(finalId);
+      initGoogleAuth(finalId);
+    } else {
+      setShowClientIdInput(true);
+    }
+  }, [initGoogleAuth]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const ext = file.name.split('.').pop()?.toLowerCase();
-      
-      // Filter out TFLite and JSON data dumps from main chat
-      if (ext === 'tflite') { alert("Use 'Offline Models' for .tflite"); return; }
-      if (ext === 'json' || ext === 'csv') {
-          if (confirm("Do you want to add this to the External Database instead of chat?")) {
-              setIsDatabaseOpen(true);
-              return;
-          }
-      }
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-      const reader = new FileReader();
-      reader.onloadend = () => {
-          const base64 = (reader.result as string).split(',')[1];
-          // Simple mime inference logic
-          let mime = file.type || 'text/plain'; 
-          let type = MediaType.DOCUMENT;
-          if (mime.startsWith('image')) type = MediaType.IMAGE;
-          if (mime.startsWith('audio')) type = MediaType.AUDIO;
-          setAttachments(prev => [...prev, { type, data: base64, mimeType: mime, name: file.name }]);
-      };
-      reader.readAsDataURL(file);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = (reader.result as string).split(',')[1];
+      let mime = file.type || 'text/plain';
+      let type = MediaType.DOCUMENT;
+      if (mime.startsWith('image')) type = MediaType.IMAGE;
+      if (mime.startsWith('audio')) type = MediaType.AUDIO;
+      setAttachments([...attachments, { type, data: base64, mimeType: mime, name: file.name }]);
+    };
+    reader.readAsDataURL(file);
   };
-  
+
   const handleOpenYouTube = () => {
-    const url = prompt("Enter a YouTube URL or Video ID to play:");
+    const url = prompt('Enter a YouTube URL or Video ID to play:');
     if (!url) return;
-    const id = extractYouTubeId(url) || url; 
+    const id = extractYouTubeId(url) || url;
     if (id) {
-        setYoutubeVideoId(id);
+      setYoutubeVideoId(id);
     } else {
-         alert("Invalid YouTube URL or ID");
+      alert('Invalid YouTube URL or ID');
     }
   };
 
-  const handleSandboxStateChange = (state: { files: Record<string, VirtualFile>, activeFile: string, fileTree: GitHubNode[] }) => {
-      sandboxStateRef.current = state;
-  };
-
-  // Layout Logic
-  const startLiveDefault = () => { setLiveConfig({video:false, edge:false, screen:false}); setIsLive(true); };
-  const startLiveEdge = () => { setLiveConfig({video:true, edge:true, screen:false}); setIsLive(true); };
-  const startLiveScreen = () => { setLiveConfig({video:true, edge:false, screen:true}); setIsLive(true); };
-  const toggleSection = (key: keyof typeof sectionsOpen) => setSectionsOpen(prev => ({ ...prev, [key]: !prev[key] }));
-
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans relative">
-      {/* Background Rendering */}
       {customBackground ? (
-          <div className="fixed inset-0 z-0">
-              {customBackground.type === 'image' ? <img src={customBackground.url} className="w-full h-full object-cover opacity-50" /> : <video src={customBackground.url} autoPlay loop muted className="w-full h-full object-cover opacity-50" />}
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent" />
-          </div>
+        <div className="fixed inset-0 z-0">
+          {customBackground.type === 'image' ? (
+            <img src={customBackground.url} className="w-full h-full object-cover opacity-50" />
+          ) : (
+            <video src={customBackground.url} autoPlay loop muted className="w-full h-full object-cover opacity-50" />
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent" />
+        </div>
       ) : isGalaxyBackground ? (
-          <NeuralGalaxy messages={messages} theme={activeTheme} isOpen={true} mode="background" />
+        <NeuralGalaxy messages={messages} theme={activeTheme} isOpen={true} mode="background" />
       ) : (
-          <Orb theme={activeTheme} intensity={isGenerating || isListening ? 0.8 : 0.4} />
+        <Orb theme={activeTheme} intensity={isGenerating ? 0.8 : 0.4} />
       )}
 
-      {/* Sidebar */}
       <aside className="w-64 bg-slate-900/80 backdrop-blur-md border-r border-slate-800 flex flex-col hidden md:flex transition-colors duration-500 shrink-0 z-10">
         <div className="p-6 border-b border-slate-800">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-milla-500 to-milla-300 bg-clip-text text-transparent">Milla Rayne</h1>
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-milla-500 to-milla-300 bg-clip-text text-transparent">
+            Milla Rayne
+          </h1>
           <p className="text-xs text-slate-500 mt-1">Devoted Companion</p>
         </div>
-        
+
         <nav className="flex-1 overflow-y-auto custom-scrollbar">
-           {/* Core */}
-           <SidebarSection title="Core" isOpen={sectionsOpen.core} onToggle={() => toggleSection('core')}>
-               <button onClick={() => { setIsSandboxOpen(false); }} className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-all ${!isSandboxOpen ? 'bg-milla-500/10 text-milla-300' : 'text-slate-400 hover:text-white'}`}>
-                 <span className="text-milla-400">💬</span><span>Chat</span>
-               </button>
-               <button onClick={() => setIsSandboxOpen(true)} className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-all ${isSandboxOpen ? 'bg-milla-500/10 text-milla-300' : 'text-slate-400 hover:text-white'}`}>
-                 <Icons.Code /><span>Sandbox</span>
-               </button>
-               <button onClick={startLiveDefault} className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
-                 <Icons.Mic /><span>Voice Mode</span>
-               </button>
-               <button onClick={startLiveEdge} className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
-                 <Icons.Eye /><span>Live Vision</span>
-               </button>
-           </SidebarSection>
-
-           {/* Creative */}
-           <SidebarSection title="Creative Suite" isOpen={sectionsOpen.creative} onToggle={() => toggleSection('creative')}>
-               <button onClick={() => setIsStudioOpen(true)} className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
-                  <Icons.Palette /><span>Studio</span>
-               </button>
-               <button onClick={() => setIsPodcastOpen(true)} className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
-                  <Icons.Podcast /><span>Podcast</span>
-               </button>
-               <button onClick={() => { setInput("Generate a video of "); fileInputRef.current?.focus(); }} className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
-                  <Icons.Video /><span>Veo Video</span>
-               </button>
-           </SidebarSection>
-
-           {/* Productivity */}
-           <SidebarSection title="Productivity" isOpen={sectionsOpen.productivity} onToggle={() => toggleSection('productivity')}>
-               <button onClick={() => setIsMorningSyncOpen(true)} className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
-                  <Icons.Sun /><span>Morning Sync</span>
-               </button>
-               <button onClick={() => setIsToDoOpen(true)} className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
-                  <Icons.Clipboard /><span>Task Manager</span>
-               </button>
-               <button onClick={() => setIsGalaxyOpen(true)} className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
-                  <Icons.Galaxy /><span>Memory Galaxy</span>
-               </button>
-               <button onClick={handleOpenYouTube} className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-800">
-                  <Icons.YouTube /><span>YouTube Player</span>
-               </button>
-           </SidebarSection>
-
-           {/* Intelligence */}
-           <SidebarSection title="Intelligence" isOpen={sectionsOpen.intelligence} onToggle={() => toggleSection('intelligence')}>
-             <button onClick={() => setIsThinking(!isThinking)} className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded ${isThinking ? 'text-violet-300 bg-violet-900/30' : 'text-slate-400 hover:text-white'}`}>
-                <Icons.Sparkles /> Thinking Mode
-             </button>
-             <button onClick={() => setShowThoughts(!showThoughts)} className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded ${showThoughts ? 'text-violet-300' : 'text-slate-500'} pl-8`}>
-                {showThoughts ? '👁️ Show Process' : '🙈 Hide Process'}
-             </button>
-             <button onClick={() => setIsSearchEnabled(!isSearchEnabled)} className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded ${isSearchEnabled ? 'text-emerald-300 bg-emerald-900/30' : 'text-slate-400 hover:text-white'}`}>
-                <Icons.Globe /> Deep Search
-             </button>
-             <button onClick={() => setIsMapsEnabled(!isMapsEnabled)} className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded ${isMapsEnabled ? 'text-cyan-300 bg-cyan-900/30' : 'text-slate-400 hover:text-white'}`}>
-                <Icons.Pin /> Maps Grounding
-             </button>
-           </SidebarSection>
-
-           {/* System */}
-           <SidebarSection title="System & Data" isOpen={sectionsOpen.system} onToggle={() => toggleSection('system')}>
-             <button onClick={() => setIsDatabaseOpen(true)} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded text-slate-400 hover:text-emerald-400 hover:bg-slate-800">
-                <Icons.Database /> External Database
-             </button>
-             <button onClick={() => setIsBackupOpen(true)} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded text-slate-400 hover:text-blue-400 hover:bg-slate-800">
-                <Icons.Clipboard /> Backup / Restore
-             </button>
-             <button onClick={() => setIsOfflineModelOpen(true)} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded text-slate-400 hover:text-orange-400 hover:bg-slate-800">
-                <Icons.Chip /> Offline Models (TFLite)
-             </button>
-           </SidebarSection>
-
-           {/* Settings - Simplified for brevity in this view */}
-           <SidebarSection title="Settings" isOpen={sectionsOpen.settings} onToggle={() => toggleSection('settings')}>
-                <div className="px-3 py-2">
-                    <button onClick={handleResetClientId} className="text-xs text-red-400">Reset Config</button>
-                </div>
-           </SidebarSection>
+          <SidebarSection title="Core" isOpen={sectionsOpen.core} onToggle={() => toggleSection('core')}>
+            <button onClick={() => toggleSandbox()} className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-all ${!isSandboxOpen ? 'bg-milla-500/10 text-milla-300' : 'text-slate-400 hover:text-white'}`}>
+              <span className="text-milla-400">💬</span>
+              <span>Chat</span>
+            </button>
+            <button onClick={() => toggleSandbox()} className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-all ${isSandboxOpen ? 'bg-milla-500/10 text-milla-300' : 'text-slate-400 hover:text-white'}`}>
+              <Icons.Code />
+              <span>Sandbox</span>
+            </button>
+            <button onClick={() => startLive()} className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
+              <Icons.Mic />
+              <span>Voice Mode</span>
+            </button>
+            <button onClick={() => startLive({ video: true, edge: true, screen: false })} className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
+              <Icons.Eye />
+              <span>Live Vision</span>
+            </button>
+          </SidebarSection>
         </nav>
       </aside>
 
-      {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden z-10">
         <main className="flex-1 flex flex-col h-full relative transition-all duration-300 min-w-0">
-           {/* Mobile Header */}
-           <header className="md:hidden p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center backdrop-blur-md">
-              <span className="font-bold text-milla-500">Milla Rayne</span>
-           </header>
+          <header className="md:hidden p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center backdrop-blur-md">
+            <span className="font-bold text-milla-500">Milla Rayne</span>
+          </header>
 
-           {/* Message List */}
-           <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
-              {messages.map(msg => (
-                  <div key={msg.id} className={`flex ${msg.role === MessageRole.USER ? 'justify-end' : 'justify-start'}`}>
-                     <div className={`p-4 rounded-2xl max-w-[85%] ${msg.role === MessageRole.USER ? 'bg-slate-800' : 'bg-slate-900 border border-slate-800'}`}>
-                         {msg.thoughtText && showThoughts && <ThoughtLogger thoughtText={msg.thoughtText} isThinking={!!msg.isThinking} />}
-                         <ReactMarkdown>{msg.text}</ReactMarkdown>
-                         {/* Attachments rendering skipped for brevity */}
-                     </div>
-                  </div>
-              ))}
-              <div ref={messagesEndRef} />
-           </div>
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+            {messages.map((msg) => (
+              <div key={msg.id} className={`flex ${msg.role === MessageRole.USER ? 'justify-end' : 'justify-start'}`}>
+                <div className={`p-4 rounded-2xl max-w-[85%] ${msg.role === MessageRole.USER ? 'bg-slate-800' : 'bg-slate-900 border border-slate-800'}`}>
+                  <ReactMarkdown>{msg.text}</ReactMarkdown>
+                </div>
+              </div>
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
 
-           {/* Input Area */}
-           <div className="p-4 bg-slate-900/80 border-t border-slate-800">
-               {attachments.length > 0 && <div className="flex gap-2 mb-2"><span className="text-xs text-slate-400">{attachments.length} files attached</span></div>}
-               <div className="flex gap-2">
-                   <button onClick={() => fileInputRef.current?.click()} className="p-3 rounded-full bg-slate-800 text-slate-400"><Icons.PaperClip /></button>
-                   <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-                   <textarea 
-                     value={input} 
-                     onChange={e => setInput(e.target.value)}
-                     onKeyDown={e => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); generateResponse(); }}}
-                     className="flex-1 bg-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none resize-none h-12"
-                     placeholder="Message Milla..."
-                   />
-                   <button onClick={() => generateResponse()} className="p-3 rounded-full bg-milla-600 text-white"><Icons.Send /></button>
-               </div>
-           </div>
+          <div className="p-4 bg-slate-900/80 border-t border-slate-800">
+            {attachments.length > 0 && (
+              <div className="flex gap-2 mb-2">
+                <span className="text-xs text-slate-400">{attachments.length} files attached</span>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button onClick={() => fileInputRef.current?.click()} className="p-3 rounded-full bg-slate-800 text-slate-400">
+                <Icons.PaperClip />
+              </button>
+              <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    generateResponse();
+                  }
+                }}
+                className="flex-1 bg-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none resize-none h-12"
+                placeholder="Message Milla..."
+              />
+              <button onClick={() => generateResponse()} className="p-3 rounded-full bg-milla-600 text-white">
+                <Icons.Send />
+              </button>
+            </div>
+          </div>
         </main>
 
-        {/* Sandbox */}
         {isSandboxOpen && (
-            <div className="shrink-0 z-20 shadow-2xl h-full bg-slate-950" style={{ width: sandboxWidth }}>
-                <Sandbox 
-                    initialCode={sandboxCode} 
-                    isOpen={true} 
-                    onClose={() => setIsSandboxOpen(false)} 
-                    onStateChange={handleSandboxStateChange}
-                    width={sandboxWidth} 
-                />
-            </div>
+          <div className="shrink-0 z-20 shadow-2xl h-full bg-slate-950" style={{ width: sandboxWidth }}>
+            <Sandbox
+              initialCode={sandboxCode}
+              isOpen={true}
+              onClose={() => toggleSandbox()}
+              onStateChange={setSandboxState}
+              width={sandboxWidth}
+            />
+          </div>
         )}
 
-        {/* Modals */}
-        <DatabaseConnector isOpen={isDatabaseOpen} onClose={() => setIsDatabaseOpen(false)} />
-        <OfflineModelRunner isOpen={isOfflineModelOpen} onClose={() => setIsOfflineModelOpen(false)} />
-        <BackupManager isOpen={isBackupOpen} onClose={() => setIsBackupOpen(false)} />
-        {/* Other modals (MorningSync, Studio etc) */}
-        <MorningSync isOpen={isMorningSyncOpen} onClose={() => setIsMorningSyncOpen(false)} />
-        <CreativeStudio isOpen={isStudioOpen} onClose={() => setIsStudioOpen(false)} />
-        <PodcastPlayer isOpen={isPodcastOpen} onClose={() => setIsPodcastOpen(false)} />
-        <ToDoList isOpen={isToDoOpen} onClose={() => setIsToDoOpen(false)} />
-        <NeuralGalaxy messages={messages} theme={activeTheme} isOpen={isGalaxyOpen} onClose={() => setIsGalaxyOpen(false)} />
+        <DatabaseConnector isOpen={isDatabaseOpen} onClose={() => toggleDatabase()} />
+        <OfflineModelRunner isOpen={isOfflineModelOpen} onClose={() => toggleOfflineModel()} />
+        <BackupManager isOpen={isBackupOpen} onClose={() => toggleBackup()} />
+        <MorningSync isOpen={isMorningSyncOpen} onClose={() => toggleMorningSync()} />
+        <CreativeStudio isOpen={isStudioOpen} onClose={() => toggleStudio()} />
+        <PodcastPlayer isOpen={isPodcastOpen} onClose={() => togglePodcast()} />
+        <ToDoList isOpen={isToDoOpen} onClose={() => toggleToDo()} />
+        <NeuralGalaxy messages={messages} theme={activeTheme} isOpen={isGalaxyOpen} onClose={() => toggleGalaxy()} />
         {youtubeVideoId && <YouTubePlayer videoId={youtubeVideoId} onClose={() => setYoutubeVideoId(null)} />}
       </div>
-      
-      {isLive && <LiveSession initialConfig={liveConfig} onClose={() => setIsLive(false)} voice={selectedVoice} />}
+
+      {isLive && <LiveSession initialConfig={liveConfig} onClose={() => stopLive()} voice={"Kore"} />}
     </div>
   );
 }
